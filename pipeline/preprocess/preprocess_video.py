@@ -5,6 +5,8 @@ Video Preprocessing Pipeline - KIS Challenge
 
 Extracts keyframes, encodes them with OpenAI CLIP (ViT-B/32),
 and prepares metadata + placeholder object JSONs for the Qdrant loader.
+This version is heavily optimized using in-memory pipelines, frame skipping,
+batch inference, and asynchronous disk I/O.
 
 Usage:
   python preprocess_video.py --video_path /path/to/video.mp4 --video_id L21_V099 --batch L21
@@ -16,6 +18,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -61,127 +64,11 @@ def check_dependencies():
         sys.exit(1)
 
 
-def extract_keyframes(video_path: Path, output_dir: Path, csv_output_path: Path, sample_rate_sec: float = 1.0):
-    """
-    Step 1: Extract frames from video at a regular interval and save as JPG.
-    Also generate metadata CSV matching the schema.
-    """
-    print(f"\n Step 1: Extracting keyframes from {video_path.name}...")
-    print(f"   Rate: 1 frame every {sample_rate_sec} second(s)")
-    
-    output_dir.mkdir(parents=True, exist_ok=True)
-    csv_output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        print(f"[ERROR] Error: Cannot open video file {video_path}")
-        sys.exit(1)
-        
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = total_frames / fps if fps > 0 else 0
-    
-    print(f"   Video Info: FPS={fps:.2f}, Total Frames={total_frames}, Duration={duration:.1f}s")
-    
-    metadata = []
-    frame_count = 0
-    keyframe_idx = 1
-    
-    # Calculate step in frames based on requested sample rate
-    frame_step = int(round(fps * sample_rate_sec))
-    if frame_step <= 0:
-        frame_step = 1
-        
-    # ProgressBar setup
-    pbar = tqdm(total=total_frames, desc="Cắt frame")
-    
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        if frame_count % frame_step == 0:
-            pts_time = frame_count / fps
-            img_name = f"{keyframe_idx:03d}.jpg"
-            img_path = output_dir / img_name
-            
-            # Save image
-            cv2.imwrite(str(img_path), frame)
-            
-            # Record metadata
-            metadata.append({
-                "n": keyframe_idx,
-                "pts_time": pts_time,
-                "fps": int(round(fps)),
-                "frame_idx": frame_count
-            })
-            keyframe_idx += 1
-            
-        frame_count += 1
-        pbar.update(1)
-        
-    cap.release()
-    pbar.close()
-    
-    # Save CSV
-    df = pd.DataFrame(metadata)
-    df.to_csv(csv_output_path, index=False)
-    print(f"[SUCCESS] Extracted {len(metadata)} keyframes.")
-    print(f"[SUCCESS] Metadata saved to {csv_output_path}")
-    return len(metadata)
-
-
-def extract_clip_features(keyframes_dir: Path, npy_output_path: Path, model_name: str = "ViT-B/32"):
-    """
-    Step 2: Generate CLIP 512-dim vectors for each keyframe and save to a single .npy file.
-    """
-    print(f"\n Step 2: Generating CLIP features ({model_name}) from keyframes...")
-    
-    npy_output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Get sorted list of jpg keyframes
-    img_paths = sorted(list(keyframes_dir.glob("*.jpg")))
-    if not img_paths:
-        print(f"[ERROR] Error: No keyframe images found in {keyframes_dir}")
-        sys.exit(1)
-        
-    # Load model
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"   Loading CLIP model on {device.upper()}...")
-    model, preprocess = clip.load(model_name, device=device)
-    model.eval()
-    
-    features_list = []
-    
-    for img_path in tqdm(img_paths, desc="Tạo vector embedding"):
-        try:
-            image = Image.open(img_path).convert("RGB")
-            image_tensor = preprocess(image).unsqueeze(0).to(device)
-            
-            with torch.no_grad():
-                image_features = model.encode_image(image_tensor)
-                # Normalize features
-                image_features /= image_features.norm(dim=-1, keepdim=True)
-                
-            features_list.append(image_features.cpu().numpy().flatten())
-        except Exception as e:
-            print(f"[ERROR] Error processing {img_path.name}: {e}")
-            sys.exit(1)
-            
-    # Save as .npy
-    features_array = np.array(features_list, dtype=np.float16)  # Use float16 to match project specs
-    np.save(npy_output_path, features_array)
-    print(f"[SUCCESS] Created features array with shape: {features_array.shape}")
-    print(f"[SUCCESS] CLIP features saved to {npy_output_path}")
-
-
 def generate_placeholders(video_id: str, count: int, objects_dir: Path):
     """
     Step 3: Generate placeholder object detection JSON files for each keyframe.
     This prevents the Qdrant loader from failing due to missing object detection files.
     """
-    print(f"\n Step 3: Generating {count} placeholder object detection JSON files...")
-    
     video_objects_dir = objects_dir / video_id
     video_objects_dir.mkdir(parents=True, exist_ok=True)
     
@@ -193,22 +80,180 @@ def generate_placeholders(video_id: str, count: int, objects_dir: Path):
         "detection_class_labels": []
     }
     
+    # Fast bulk writing
     for i in range(1, count + 1):
-        # The project supports both 3-digit and 4-digit formatting (e.g. 001.json or 0001.json)
-        # We will write 4-digit formatting as default (e.g., 0001.json)
         json_path = video_objects_dir / f"{i:04d}.json"
         with open(json_path, 'w') as f:
             json.dump(placeholder_data, f)
+
+
+def process_video_optimized(
+    video_path: Path,
+    keyframes_dir: Path,
+    csv_output_path: Path,
+    npy_output_path: Path,
+    sample_rate_sec: float = 1.0,
+    batch_size: int = 32,
+    model_name: str = "ViT-B/32"
+):
+    """
+    Optimized single-pass pipeline:
+    1. Reads video, skips intermediate frames with cap.grab() (extremely fast).
+    2. Decodes target frames, converts BGR->RGB in memory, and puts them into batches.
+    3. Saves JPG keyframes to disk asynchronously using a ThreadPoolExecutor.
+    4. Performs batched CLIP inference on GPU/CPU to maximize processing throughput.
+    """
+    print(f"\n[INFO] Starting optimized preprocessing for: {video_path.name}")
+    print(f"       Sampling Rate: 1 frame every {sample_rate_sec} second(s)")
+    print(f"       Batch Size:    {batch_size}")
+    
+    keyframes_dir.mkdir(parents=True, exist_ok=True)
+    csv_output_path.parent.mkdir(parents=True, exist_ok=True)
+    npy_output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Initialize Video Reader
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"[ERROR] Cannot open video file {video_path}")
+        sys.exit(1)
+        
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = total_frames / fps if fps > 0 else 0
+    
+    print(f"[INFO] Video Details: FPS={fps:.2f}, Total Frames={total_frames}, Duration={duration:.1f}s")
+    
+    # 2. Initialize CLIP Model
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[INFO] Loading CLIP model {model_name} on {device.upper()}...")
+    model, preprocess = clip.load(model_name, device=device)
+    model.eval()
+    
+    # 3. Setup Processing State
+    frame_step = int(round(fps * sample_rate_sec))
+    if frame_step <= 0:
+        frame_step = 1
+        
+    metadata = []
+    features_list = []
+    
+    # Batch buffer
+    batch_images = []
+    
+    # Async I/O Thread Pool (for saving JPGs)
+    print(f"[INFO] Initializing async I/O worker pool for keyframe saving...")
+    io_executor = ThreadPoolExecutor(max_workers=4)
+    futures = []
+    
+    # ProgressBar
+    pbar = tqdm(total=total_frames, desc="Processing Video")
+    
+    frame_count = 0
+    keyframe_idx = 1
+    
+    # Helper to encode a batch of images
+    def encode_batch(pil_imgs):
+        if not pil_imgs:
+            return
+        
+        # Preprocess and stack tensors
+        tensors = torch.stack([preprocess(img) for img in pil_imgs]).to(device)
+        
+        with torch.no_grad():
+            # Use mixed precision if on CUDA
+            if device == "cuda":
+                with torch.amp.autocast(device_type="cuda", dtype=torch.float16):
+                    batch_features = model.encode_image(tensors)
+            else:
+                batch_features = model.encode_image(tensors)
+                
+            # Normalize embeddings
+            batch_features /= batch_features.norm(dim=-1, keepdim=True)
+            features_list.extend(batch_features.cpu().numpy())
+
+    # 4. Processing Loop
+    while cap.isOpened():
+        if frame_count % frame_step == 0:
+            # Grab and retrieve (decode)
+            ret = cap.grab()
+            if not ret:
+                break
+            ret, frame = cap.retrieve()
+            if not ret:
+                break
             
-    print(f"[SUCCESS] Placeholders saved under {video_objects_dir}/")
+            pts_time = frame_count / fps
+            img_name = f"{keyframe_idx:03d}.jpg"
+            img_path = keyframes_dir / img_name
+            
+            # Submit asynchronous disk write (using a copy of the frame to avoid buffer reuse issues)
+            fut = io_executor.submit(cv2.imwrite, str(img_path), frame.copy())
+            futures.append(fut)
+            
+            # Convert BGR (OpenCV) to RGB PIL Image in-memory for CLIP
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(rgb_frame)
+            batch_images.append(pil_img)
+            
+            # Record metadata
+            metadata.append({
+                "n": keyframe_idx,
+                "pts_time": pts_time,
+                "fps": int(round(fps)),
+                "frame_idx": frame_count
+            })
+            
+            # If batch is full, execute inference
+            if len(batch_images) == batch_size:
+                encode_batch(batch_images)
+                batch_images = []
+                
+            keyframe_idx += 1
+        else:
+            # Fast skip: Grab frame header but do not decode pixel data
+            ret = cap.grab()
+            if not ret:
+                break
+                
+        frame_count += 1
+        pbar.update(1)
+        
+    cap.release()
+    pbar.close()
+    
+    # Encode remaining items in the buffer
+    if batch_images:
+        encode_batch(batch_images)
+        
+    # Wait for all asynchronous JPG saving operations to finish
+    if futures:
+        print(f"[INFO] Waiting for {len(futures)} asynchronous keyframe disk writes to complete...")
+        for fut in tqdm(futures, desc="Writing JPGs to disk"):
+            fut.result()
+            
+    io_executor.shutdown(wait=True)
+    
+    # 5. Save Outputs
+    # Save CSV
+    df = pd.DataFrame(metadata)
+    df.to_csv(csv_output_path, index=False)
+    print(f"[SUCCESS] Metadata saved to: {csv_output_path}")
+    
+    # Save NPY (float16 to match project specifications)
+    features_array = np.array(features_list, dtype=np.float16)
+    np.save(npy_output_path, features_array)
+    print(f"[SUCCESS] CLIP features saved to: {npy_output_path} (Shape: {features_array.shape})")
+    
+    return len(metadata)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Video Preprocessing Pipeline - KIS Challenge")
+    parser = argparse.ArgumentParser(description="Optimized Video Preprocessing Pipeline - KIS Challenge")
     parser.add_argument("--video_path", type=str, required=True, help="Path to raw video file (.mp4, etc.)")
     parser.add_argument("--video_id", type=str, default=None, help="Custom ID for this video (e.g., L21_V001)")
     parser.add_argument("--batch", type=str, default="L21", help="Batch folder (e.g. L21, L22...)")
     parser.add_argument("--sample_rate", type=float, default=1.0, help="Seconds per keyframe (default: 1.0)")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size for CLIP inference (default: 32)")
     parser.add_argument("--data_root", type=str, default=None, help="Root directory for the dataset")
     
     args = parser.parse_args()
@@ -217,27 +262,24 @@ def main():
     
     video_path = Path(args.video_path)
     if not video_path.exists():
-        print(f"[ERROR] Error: Video file not found: {video_path}")
+        print(f"[ERROR] Video file not found: {video_path}")
         sys.exit(1)
         
     video_id = args.video_id or video_path.stem
     batch = args.batch
-    # Standardize batch naming format to Lxx (e.g., L21)
     if not batch.startswith("L"):
         batch = f"L{batch}"
         
     # Resolve DATA_ROOT
     data_root_str = args.data_root
     if not data_root_str and HAS_CONFIG:
-        # Fallback to config if it was auto-detected or configured
         if config.DATA_ROOT and config.DATA_ROOT != "/path/to/your/data":
             data_root_str = config.DATA_ROOT
             print(f" Using DATA_ROOT from config.py: {data_root_str}")
             
     if not data_root_str:
-        # Final fallback
         data_root_str = "../data"
-        print(f" DATA_ROOT not specified or configured. Defaulting to: {data_root_str}")
+        print(f" DATA_ROOT not specified. Defaulting to: {data_root_str}")
         
     data_root = Path(data_root_str)
     
@@ -252,7 +294,7 @@ def main():
     csv_output_path = csv_dir / f"{video_id}.csv"
     
     print("\n" + "=" * 60)
-    print(" STARTING VIDEO PREPROCESSING PIPELINE")
+    print(" STARTING OPTIMIZED VIDEO PREPROCESSING PIPELINE")
     print("=" * 60)
     print(f"Target Video: {video_path}")
     print(f"Video ID:     {video_id}")
@@ -262,14 +304,20 @@ def main():
     
     start_time = time.time()
     
-    # 1. Extract frames
-    num_keyframes = extract_keyframes(video_path, keyframes_dir, csv_output_path, args.sample_rate)
-    
-    # 2. Extract CLIP features
-    extract_clip_features(keyframes_dir, npy_output_path)
+    # 1 & 2. Process video, extract keyframes and CLIP features
+    num_keyframes = process_video_optimized(
+        video_path=video_path,
+        keyframes_dir=keyframes_dir,
+        csv_output_path=csv_output_path,
+        npy_output_path=npy_output_path,
+        sample_rate_sec=args.sample_rate,
+        batch_size=args.batch_size
+    )
     
     # 3. Generate objects placeholders
+    print(f"\n Step 3: Generating {num_keyframes} placeholder object detection JSON files...")
     generate_placeholders(video_id, num_keyframes, objects_dir)
+    print(f"[SUCCESS] Placeholders saved under {objects_dir / video_id}/")
     
     elapsed_time = time.time() - start_time
     
@@ -280,8 +328,8 @@ def main():
     print(f"Total Time:   {elapsed_time:.1f} seconds")
     print("=" * 60)
     print("\n What to do next:")
-    print("1. Update your loader command or config.py if needed.")
-    print("2. Run 'python run_loader.py' to upload this new video to Qdrant!")
+    print("1. Run the loader script to upload to Qdrant:")
+    print("   python pipeline/loaders/run_loader.py")
     print("=" * 60)
 
 
