@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Search UI</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="main-container">
+        <header>
+            <h1>Video Search</h1>
+        </header>
+
+        <div class="content-wrapper">
+            <!-- Left Sidebar - Input Section -->
+            <div class="sidebar">
+                <div class="search-section">
+                    <!-- Search Mode Selection -->
+                    <div class="mode-selector">
+                        <button type="button" id="textModeBtn" class="btn btn-mode active">🔤 Tìm bằng văn bản</button>
+                        <button type="button" id="imageModeBtn" class="btn btn-mode">🖼️ Tìm bằng ảnh</button>
+                    </div>
+
+                    <!-- Text Search Section -->
+                    <div id="textInputSection" class="input-section">
+                        <div class="input-group">
+                            <label for="queryInput">Nhập câu query (mỗi dòng một câu):</label>
+                            <textarea
+                                id="queryInput"
+                                placeholder="Ví dụ:&#10;a person walking&#10;a person with red hat is walking&#10;car driving"
+                                rows="4"
+                            ></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Image Search Section -->
+                    <div id="imageInputSection" class="input-section" style="display: none;">
+                        <div class="input-group">
+                            <label for="imageInput">Chọn ảnh để tìm kiếm:</label>
+                            <input type="file" id="imageInput" accept="image/*" class="file-input">
+                            <div class="upload-hint">
+                                💡 <strong>Mẹo:</strong> Bạn có thể dán ảnh trực tiếp bằng <kbd>Ctrl+V</kbd>
+                            </div>
+                            <div id="imagePreview" class="image-preview">
+                                <div class="upload-placeholder">
+                                    🖼️ Chưa có ảnh được chọn<br>
+                                    <small>Chọn file hoặc dán ảnh (Ctrl+V)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Object Filter Section -->
+                    <div class="input-group">
+                        <label for="objectInput">Lọc theo object (tùy chọn, mỗi dòng một object):</label>
+                        <textarea
+                            id="objectInput"
+                            placeholder="Ví dụ:&#10;Human face&#10;Person&#10;Car"
+                            rows="3"
+                        ></textarea>
+                    </div>
+
+                    <!-- Search Buttons -->
+                    <div class="button-group">
+                        <button type="button" id="searchBtn" class="btn btn-primary">🔍 Tìm kiếm</button>
+                        <button type="button" id="searchMoreBtn" class="btn btn-secondary" disabled>➕ Tìm tiếp</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Side - Results Section -->
+            <div class="main-content">
+                <div class="results-section" id="resultsSection">
+                    <div class="results-header">
+                        <h2>Kết quả tìm kiếm</h2>
+                        <div class="pagination-info">
+                            <span id="paginationInfo">Hiển thị 1-20 của 0 kết quả</span>
+                        </div>
+                    </div>
+
+                    <!-- Query Statistics -->
+                    <div id="queryStats" class="query-stats"></div>
+
+                    <!-- Pagination Controls -->
+                    <div class="pagination-controls">
+                        <button type="button" id="prevBtn" class="btn btn-outline" disabled>
+                            ← Trước
+                        </button>
+                        <button type="button" id="nextBtn" class="btn btn-outline" disabled>
+                            Tiếp →
+                        </button>
+                    </div>
+
+                    <!-- Grid Container -->
+                    <div class="grid-container" id="gridContainer">
+                        <!-- Grid items will be dynamically added here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner" class="loading-spinner" style="display: none;">
+            <div class="spinner"></div>
+            <p>Đang tìm kiếm...</p>
+        </div>
+
+        <!-- Error Message -->
+        <div id="errorMessage" class="error-message" style="display: none;">
+            <p id="errorText"></p>
+        </div>
+
+        <!-- Frame Carousel Modal -->
+        <div id="carouselModal" class="carousel-modal" style="display: none;">
+            <div class="carousel-content">
+                <div class="carousel-header">
+                    <h3 id="carouselTitle">Khung hình lân cận</h3>
+                    <button type="button" id="closeCarousel" class="close-btn">&times;</button>
+                </div>
+
+                <div class="carousel-body">
+                    <div class="carousel-container">
+                        <button type="button" id="prevFrame" class="nav-btn nav-prev">&lt;</button>
+
+                        <div class="frame-display">
+                            <img id="currentFrameImg" src="" alt="Current frame" />
+                            <div class="frame-info">
+                                <div class="frame-details">
+                                    <span id="framePosition">1 / 50</span>
+                                    <span id="frameTime">00:18:21</span>
+                                </div>
+                                <div class="frame-metadata">
+                                    <span id="frameId">L28_V015_427</span>
+                                    <span id="frameIdx">Frame: 27533</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="button" id="nextFrame" class="nav-btn nav-next">&gt;</button>
+                    </div>
+
+                    <!-- Thumbnail strip -->
+                    <div class="thumbnail-strip">
+                        <div id="thumbnailContainer" class="thumbnail-container">
+                            <!-- Thumbnails will be added dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

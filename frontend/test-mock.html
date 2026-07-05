@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Mock API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .result {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test Mock API Server</h1>
+    
+    <div class="test-section">
+        <h2>Health Check</h2>
+        <button onclick="testHealth()">Test Health</button>
+        <div id="healthResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Video Search</h2>
+        <button onclick="testSearch()">Test Search</button>
+        <div id="searchResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Custom Search</h2>
+        <label>Query Text:</label>
+        <textarea id="customQuery" rows="3" cols="50" placeholder='["a person walking", "car driving"]'>["a person walking", "car driving"]</textarea>
+        <br><br>
+        <label>List Object:</label>
+        <textarea id="customObject" rows="3" cols="50" placeholder='["PERSON", "DOG", "CAR"]'>["PERSON", "DOG", "CAR"]</textarea>
+        <br><br>
+        <button onclick="testCustomSearch()">Test Custom Search</button>
+        <div id="customResult" class="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        async function testHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                document.getElementById('healthResult').innerHTML = `
+                    <h4>Response:</h4>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                document.getElementById('healthResult').innerHTML = `
+                    <h4>Error:</h4>
+                    <pre>${error.message}</pre>
+                `;
+            }
+        }
+        
+        async function testSearch() {
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/videos/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query_text: ["a person walking"],
+                        list_object: ["PERSON", "DOG"]
+                    })
+                });
+                const data = await response.json();
+                document.getElementById('searchResult').innerHTML = `
+                    <h4>Response:</h4>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    <p><strong>Number of results:</strong> ${data.results ? data.results.length : 0}</p>
+                `;
+            } catch (error) {
+                document.getElementById('searchResult').innerHTML = `
+                    <h4>Error:</h4>
+                    <pre>${error.message}</pre>
+                `;
+            }
+        }
+        
+        async function testCustomSearch() {
+            try {
+                const queryText = document.getElementById('customQuery').value;
+                const objectText = document.getElementById('customObject').value;
+                const queries = JSON.parse(queryText);
+                const objects = JSON.parse(objectText);
+                
+                const response = await fetch(`${API_BASE}/api/v1/videos/search`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query_text: queries,
+                        list_object: objects
+                    })
+                });
+                const data = await response.json();
+                document.getElementById('customResult').innerHTML = `
+                    <h4>Response:</h4>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    <p><strong>Number of results:</strong> ${data.results ? data.results.length : 0}</p>
+                `;
+            } catch (error) {
+                document.getElementById('customResult').innerHTML = `
+                    <h4>Error:</h4>
+                    <pre>${error.message}</pre>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
