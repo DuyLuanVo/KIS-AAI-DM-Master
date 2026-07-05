@@ -107,6 +107,7 @@ class VideoSearchResult(BaseModel):
     video_id: str = Field(..., description="Video ID")
     keyframe_idx: int = Field(..., description="Keyframe index")
     jpg_path: str = Field(..., description="Path to JPEG file")
+    image_url: Optional[str] = Field(default=None, description="Pre-signed URL to the image on MinIO")
     pts_time: float = Field(..., description="Timestamp in video")
     frame_idx: int = Field(..., description="Frame index")
     similarity_score: float = Field(..., description="Similarity score")

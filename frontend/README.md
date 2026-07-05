@@ -70,10 +70,18 @@ python -m http.server 8080
 
 ## API Integration
 
-Frontend gọi API endpoint:
-- **URL**: `http://localhost:8000/api/v1/videos/search`
-- **Method**: POST
-- **Body**: `{"query_text": ["query1", "query2", ...]}`
+Frontend gọi các API endpoint của Backend:
+- **Tìm kiếm bằng văn bản**:
+  - **URL**: `http://localhost:8000/api/v1/videos/search/text`
+  - **Method**: POST
+  - **Body**: `{"query_texts": ["query1", "query2", ...], "object_filters": null}`
+- **Tìm kiếm bằng hình ảnh**:
+  - **URL**: `http://localhost:8000/api/v1/videos/search/image`
+  - **Method**: POST
+  - **Body**: `{"image_base64": "...", "object_filters": null}`
+- **Tải ảnh keyframes**:
+  - **URL**: `http://localhost:8000/api/v1/videos/keyframes/{key_tương_đối}`
+  - **Method**: GET (Tự động redirect tới Pre-signed URL trên MinIO)
 
 ## Mock Server
 
@@ -153,8 +161,8 @@ Trong `styles.css`:
 Nếu gặp CORS error, đảm bảo backend đã cấu hình CORS đúng.
 
 ### Ảnh không hiển thị
-- Kiểm tra đường dẫn ảnh trong API response
-- Đảm bảo backend có thể serve static files
+- Kiểm tra trường `image_url` trong API response
+- Đảm bảo cụm dịch vụ MinIO (`docker-compose up -d`) đã hoạt động và dữ liệu ảnh đã được upload thành công qua `python scripts/upload_to_minio.py`
 
 ### API không response
 - Kiểm tra backend có đang chạy không

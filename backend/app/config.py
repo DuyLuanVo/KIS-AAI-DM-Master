@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
     qdrant_collection: str = "video_keyframes"
 
+    # MinIO
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+    minio_bucket: str = "kis-keyframes"
+    minio_secure: bool = False
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

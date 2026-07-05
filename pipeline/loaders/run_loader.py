@@ -174,8 +174,8 @@ def process_single_video(video_id):
             objects = load_objects_simple(video_id, idx + 1)
             object_names = [obj["entity"] for obj in objects]
 
-            # Build keyframe path
-            img_path = f"{keyframes_dir}/{video_id}/{idx+1:03d}.jpg"
+            # Build keyframe path (relative MinIO Object Key)
+            img_path = f"keyframes/{video_id}/{idx+1:03d}.jpg"
 
             # Create payload (include original ID for reference)
             original_id = f"{video_id}_{idx+1:03d}"

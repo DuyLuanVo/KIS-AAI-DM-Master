@@ -44,9 +44,9 @@ cp env.example .env
 # Chỉnh sửa .env theo nhu cầu
 ```
 
-3. **Chạy Qdrant (nếu chưa chạy):**
+3. **Khởi chạy cụm dịch vụ Qdrant và MinIO:**
 ```bash
-docker-compose up -d qdrant
+docker-compose up -d
 ```
 
 ## Chạy ứng dụng
@@ -112,7 +112,12 @@ Các cấu hình chính trong `app/config.py`:
 
 - `qdrant_host`: Host của Qdrant server
 - `qdrant_port`: Port của Qdrant server
-- `qdrant_collection_name`: Tên collection
+- `qdrant_collection`: Tên collection
+- `minio_endpoint`: Endpoint của MinIO server (mặc định: `localhost:9000`)
+- `minio_access_key`: Access Key của MinIO (mặc định: `minioadmin`)
+- `minio_secret_key`: Secret Key của MinIO (mặc định: `minioadmin`)
+- `minio_bucket`: Tên bucket chứa ảnh keyframes (mặc định: `kis-keyframes`)
+- `minio_secure`: Sử dụng kết nối bảo mật HTTPS hay HTTP (mặc định: `False`)
 - `qdrant_vector_size`: Kích thước vector (mặc định: 512)
 
 ## Logging

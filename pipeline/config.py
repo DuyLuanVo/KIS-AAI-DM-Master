@@ -29,9 +29,17 @@ OBJECTS_DIR = "objects-aic25-b1/objects"
 KEYFRAMES_DIR_PATTERN = "Keyframes_L{batch}/keyframes"
 
 # ===== QDRANT CONFIGURATION =====
-QDRANT_HOST = "localhost"
-QDRANT_PORT = 6333
-COLLECTION_NAME = "video_keyframes"
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "video_keyframes")
+
+# ===== MINIO CONFIGURATION =====
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "kis-keyframes")
+MINIO_SECURE = os.getenv("MINIO_SECURE", "False").lower() in ("true", "1", "t", "y", "yes")
+
 
 # ===== PROCESSING SETTINGS =====
 BATCH_SIZE = 1000  # Points per batch upload to Qdrant

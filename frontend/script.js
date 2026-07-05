@@ -493,14 +493,11 @@ function createGridItem(result) {
     const gridItem = document.createElement('div');
     gridItem.className = 'grid-item';
 
-    // Build image path - handle relative paths from data folder
-    let imageUrl;
-    if (result.jpg_path.startsWith('http')) {
-        imageUrl = result.jpg_path;
-    } else {
-        // Remove leading slash if present and add data path
-        const cleanPath = result.jpg_path.replace(/^\//, '');
-        imageUrl = `/data/${cleanPath}`;
+    // Build image path - prioritize image_url, fall back to backend redirect endpoint
+    let imageUrl = result.image_url || result.jpg_path;
+    if (!imageUrl.startsWith('http')) {
+        const cleanPath = imageUrl.replace(/^\//, '');
+        imageUrl = `${API_BASE_URL}/api/v1/videos/keyframes/${cleanPath}`;
     }
 
     // Format timestamp
@@ -766,7 +763,8 @@ function createThumbnailItem(frame, index) {
         thumbnail.classList.add('center');
     }
 
-    const imageUrl = `/data/${frame.jpg_path}`;
+    const cleanPath = frame.jpg_path.replace(/^\//, '');
+    const imageUrl = `${API_BASE_URL}/api/v1/videos/keyframes/${cleanPath}`;
 
     thumbnail.innerHTML = `
         <img src="${imageUrl}"
@@ -790,7 +788,8 @@ function updateCurrentFrame() {
     console.log('🖼️ Updating to frame:', frame.keyframe_idx);
 
     // Update main image
-    const imageUrl = `/data/${frame.jpg_path}`;
+    const cleanPath = frame.jpg_path.replace(/^\//, '');
+    const imageUrl = `${API_BASE_URL}/api/v1/videos/keyframes/${cleanPath}`;
     currentFrameImg.src = imageUrl;
     currentFrameImg.onerror = function() {
         this.style.opacity = '0.5';

@@ -2,7 +2,23 @@
 
 ## Cách chạy
 
-### 1. Chạy Backend
+### 1. Khởi chạy cụm dịch vụ Docker
+Khởi chạy Qdrant và MinIO (cùng helper tự tạo bucket `kis-keyframes`):
+```bash
+docker-compose up -d
+```
+
+### 2. Di chuyển ảnh lên MinIO & Nạp dữ liệu vào Qdrant
+Chạy script để upload toàn bộ keyframes cục bộ lên MinIO:
+```bash
+python scripts/upload_to_minio.py
+```
+Sau đó nạp vector và payload (chứa Object Keys tương đối của MinIO) lên Qdrant:
+```bash
+python pipeline/loaders/run_loader.py
+```
+
+### 3. Chạy Backend
 Di chuyển vào thư mục `backend` và chạy:
 ```bash
 cd backend
@@ -10,19 +26,9 @@ python run.py
 ```
 API Documentation sẽ có tại: `http://localhost:8000/docs`
 
-### 2. Chạy Frontend
-Chạy HTTP Server của frontend để tự động map dữ liệu ảnh từ thư mục `data/`:
-```bash
-python frontend/serve.py
-```
-Sau đó truy cập vào trình duyệt tại: `http://localhost:3000`
-
-### 3. Chạy Loader & Preprocessing
-Cấu hình hệ thống nằm tại `pipeline/config.py`.
-Để chạy loader đưa dữ liệu lên Qdrant:
-```bash
-python pipeline/loaders/run_loader.py
-```
+### 4. Chạy Frontend
+Bạn có thể mở trực tiếp file `frontend/index.html` trong trình duyệt hoặc sử dụng các static server mini (ví dụ: Live Server trong VS Code). 
+*(Chú ý: Không cần chạy `frontend/serve.py` nữa vì ảnh đã được phục vụ trực tiếp từ MinIO qua API redirect của Backend).*
 ## 📋 Tổng quan bài toán
 
 Hệ thống **Keyframe-based Image Search (KIS)** cho phép tìm kiếm video thông qua mô tả văn bản. Khi người dùng nhớ mơ hồ một cảnh nào đó trong video, họ có thể mô tả bằng văn bản để tìm lại video chứa cảnh đó.
@@ -261,9 +267,10 @@ def upload_to_qdrant():
 
 ### 🔧 Tech Stack
 - **Vector DB**: Qdrant
-- **Processing**: Python + NumPy + Pandas
+- **Object Storage**: MinIO
+- **Processing**: Python + NumPy + Pandas + Boto3
 - **CLIP Model**: OpenAI CLIP ViT-B/32
-- **API**: FastAPI (for search endpoints)
+- **API**: FastAPI (for search endpoints & keyframe redirects)
 - **Monitoring**: Prometheus + Grafana
 
 ## 📈 Expected Performance

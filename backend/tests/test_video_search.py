@@ -14,10 +14,10 @@ class TestVideoSearch:
     def test_search_videos_post(self):
         """Test POST /api/v1/videos/search"""
         request_data = {
-            "query_text": ["a person walking"]
+            "query_texts": ["a person walking"]
         }
         
-        response = client.post("/api/v1/videos/search", json=request_data)
+        response = client.post("/api/v1/videos/search/text", json=request_data)
         assert response.status_code == 200
         
         data = response.json()
@@ -33,10 +33,10 @@ class TestVideoSearch:
     def test_search_videos_response_structure(self):
         """Test that response has correct structure"""
         request_data = {
-            "query_text": ["car driving"]
+            "query_texts": ["car driving"]
         }
         
-        response = client.post("/api/v1/videos/search", json=request_data)
+        response = client.post("/api/v1/videos/search/text", json=request_data)
         assert response.status_code == 200
         
         data = response.json()
@@ -51,10 +51,10 @@ class TestVideoSearch:
     def test_search_videos_returns_data(self):
         """Test that search returns some data"""
         request_data = {
-            "query_text": ["dog running"]
+            "query_texts": ["dog running"]
         }
         
-        response = client.post("/api/v1/videos/search", json=request_data)
+        response = client.post("/api/v1/videos/search/text", json=request_data)
         assert response.status_code == 200
         
         data = response.json()
@@ -63,19 +63,19 @@ class TestVideoSearch:
     def test_search_videos_empty_query(self):
         """Test search with empty query text"""
         request_data = {
-            "query_text": []
+            "query_texts": []
         }
         
-        response = client.post("/api/v1/videos/search", json=request_data)
+        response = client.post("/api/v1/videos/search/text", json=request_data)
         assert response.status_code == 200  # Should still work with empty query
     
     def test_search_videos_long_query(self):
         """Test search with long query text"""
         request_data = {
-            "query_text": ["a person walking in the park with a dog on a sunny day"]
+            "query_texts": ["a person walking in the park with a dog on a sunny day"]
         }
         
-        response = client.post("/api/v1/videos/search", json=request_data)
+        response = client.post("/api/v1/videos/search/text", json=request_data)
         assert response.status_code == 200
         
         data = response.json()

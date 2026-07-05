@@ -210,3 +210,8 @@ __marimo__/
 data/
 *.mp4
 
+# Local database & object storage volumes
+minio_storage/
+qdrant_storage/
+
+

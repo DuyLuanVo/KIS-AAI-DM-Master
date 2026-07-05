@@ -13,7 +13,9 @@ from app.models.schemas import (
     VideoTextSearchRequest,
 )
 from app.services.clip_service import clip_service
+from app.services.minio_service import minio_service
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import RedirectResponse
 from loguru import logger
 
 router = APIRouter()
@@ -30,12 +32,20 @@ def format_search_results(
     for result in raw_results:
         payload = result["payload"]
 
+        # Generate presigned URL
+        image_url = None
+        try:
+            image_url = minio_service.generate_presigned_url(payload["jpg_path"])
+        except Exception as e:
+            logger.error(f"Error generating presigned URL for {payload['jpg_path']}: {e}")
+
         search_result = VideoSearchResult(
             rank=result["rank"],
             original_id=payload["original_id"],
             video_id=payload["video_id"],
             keyframe_idx=payload["keyframe_idx"],
             jpg_path=payload["jpg_path"],
+            image_url=image_url,
             pts_time=payload["pts_time"],
             frame_idx=payload["frame_idx"],
             similarity_score=result["score"],
@@ -156,4 +166,21 @@ async def get_collection_info():
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get collection info: {str(e)}"
+        )
+
+
+@router.get("/keyframes/{key:path}")
+async def get_keyframe_image(key: str):
+    """
+    Generate a pre-signed URL and redirect to MinIO to download the image.
+    This simplifies loading nearby frames in the carousel.
+    """
+    try:
+        url = minio_service.generate_presigned_url(key)
+        return RedirectResponse(url)
+    except Exception as e:
+        logger.error(f"Failed to generate redirect URL for key {key}: {e}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Keyframe image not found: {str(e)}"
         )
