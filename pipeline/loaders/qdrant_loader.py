@@ -6,7 +6,6 @@ Qdrant Video Keyframes Loader
 Pipeline to load video keyframe data into Qdrant vector database.
 Supports CLIP features, metadata, and object detection results.
 
-Author: AI Challenge Team
 """
 
 import json
