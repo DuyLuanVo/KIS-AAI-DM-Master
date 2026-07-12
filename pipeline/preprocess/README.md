@@ -31,7 +31,7 @@ python preprocess_video.py --video_path <đường_dẫn_video> --video_id <ID_v
 | `--video_path` | **Có** | - | Đường dẫn đến file video gốc (ví dụ: `new_movie.mp4`). |
 | `--video_id` | Không | Tên file video | Tên ID định danh cho video trong database (ví dụ: `L21_V099`). |
 | `--batch` | Không | `L21` | Tên Batch thư mục keyframes (ví dụ: `L21` hoặc `L22`). |
-| `--sample_rate`| Không | `1.0` | Khoảng cách trích xuất (giây/khung hình). `1.0` nghĩa là cứ 1 giây cắt 1 ảnh. |
+| `--sample_rate`| Không | `2.0` | Khoảng cách trích xuất (giây/khung hình). `2.0` nghĩa là cứ 2 giây cắt 1 ảnh. |
 | `--data_root` | Không | Tự động nhận diện | Đường dẫn đến thư mục `data` tổng. Nếu không nhập, script sẽ lấy từ `config.py` ở thư mục gốc hoặc mặc định là `../data`. |
 
 ### Ví dụ cụ thể:

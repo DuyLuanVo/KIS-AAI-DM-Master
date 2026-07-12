@@ -92,7 +92,7 @@ def process_video_optimized(
     keyframes_dir: Path,
     csv_output_path: Path,
     npy_output_path: Path,
-    sample_rate_sec: float = 1.0,
+    sample_rate_sec: float = 2.0,
     batch_size: int = 32,
     model_name: str = "ViT-B/32"
 ):
@@ -252,7 +252,7 @@ def main():
     parser.add_argument("--video_path", type=str, required=True, help="Path to raw video file (.mp4, etc.)")
     parser.add_argument("--video_id", type=str, default=None, help="Custom ID for this video (e.g., L21_V001)")
     parser.add_argument("--batch", type=str, default="L21", help="Batch folder (e.g. L21, L22...)")
-    parser.add_argument("--sample_rate", type=float, default=1.0, help="Seconds per keyframe (default: 1.0)")
+    parser.add_argument("--sample_rate", type=float, default=2.0, help="Seconds per keyframe (default: 2.0)")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size for CLIP inference (default: 32)")
     parser.add_argument("--data_root", type=str, default=None, help="Root directory for the dataset")
     
