@@ -49,6 +49,31 @@ const frameIdx = document.getElementById('frameIdx');
 const thumbnailContainer = document.getElementById('thumbnailContainer');
 const carouselTitle = document.getElementById('carouselTitle');
 
+// Tab Elements
+const searchTabBtn = document.getElementById('searchTabBtn');
+const ingestTabBtn = document.getElementById('ingestTabBtn');
+const searchTabContent = document.getElementById('searchTabContent');
+const ingestTabContent = document.getElementById('ingestTabContent');
+
+// Ingest Form Elements
+const ingestUrlInput = document.getElementById('ingestUrlInput');
+const ingestVideoIdInput = document.getElementById('ingestVideoIdInput');
+const ingestMethodSelect = document.getElementById('ingestMethodSelect');
+const ingestTimeConfig = document.getElementById('ingestTimeConfig');
+const ingestSbdConfig = document.getElementById('ingestSbdConfig');
+const ingestIntervalInput = document.getElementById('ingestIntervalInput');
+const ingestSbdThresholdInput = document.getElementById('ingestSbdThresholdInput');
+const startIngestBtn = document.getElementById('startIngestBtn');
+
+// Monitor Elements
+const wsStatusIcon = document.getElementById('wsStatusIcon');
+const wsStatusText = document.getElementById('wsStatusText');
+const ingestTaskListBody = document.getElementById('ingestTaskListBody');
+
+// Connection State
+let ingestSocket = null;
+let ingestPollInterval = null;
+
 // Event listeners
 searchBtn.addEventListener('click', (e) => {
     e.preventDefault();
@@ -647,6 +672,34 @@ function init() {
         }
     });
 
+    // Tab switching event listeners
+    searchTabBtn.addEventListener('click', () => {
+        searchTabBtn.classList.add('active');
+        ingestTabBtn.classList.remove('active');
+        searchTabContent.classList.add('active');
+        ingestTabContent.classList.remove('active');
+    });
+
+    ingestTabBtn.addEventListener('click', () => {
+        ingestTabBtn.classList.add('active');
+        searchTabBtn.classList.remove('active');
+        ingestTabContent.classList.add('active');
+        searchTabContent.classList.remove('active');
+    });
+
+    // Ingest method change listener
+    ingestMethodSelect.addEventListener('change', (e) => {
+        const method = e.target.value;
+        ingestTimeConfig.style.display = method === 'TIME' ? 'block' : 'none';
+        ingestSbdConfig.style.display = method === 'SBD' ? 'block' : 'none';
+    });
+
+    // Start Ingest listener
+    startIngestBtn.addEventListener('click', handleStartIngestion);
+
+    // Initialize Ingest Monitoring
+    initIngestMonitoring();
+
     // Initialize button states
     updateButtonStates();
 
@@ -837,6 +890,258 @@ function formatTime(seconds) {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 }
+
+// ==========================================================================
+// INGEST PIPELINE FUNCTIONS
+// ==========================================================================
+
+// Handle Ingest submit
+async function handleStartIngestion() {
+    const url = ingestUrlInput.value.trim();
+    if (!url) {
+        alert("Vui lòng nhập đường dẫn YouTube Video hoặc Channel/Playlist.");
+        return;
+    }
+
+    const videoId = ingestVideoIdInput.value.trim() || null;
+    const method = ingestMethodSelect.value;
+    const timeInterval = parseFloat(ingestIntervalInput.value) || 2.0;
+    const sbdThreshold = parseFloat(ingestSbdThresholdInput.value) || 0.3;
+
+    startIngestBtn.disabled = true;
+    startIngestBtn.textContent = "⌛ Đang xử lý...";
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/videos/ingest`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                url: url,
+                extraction_method: method,
+                time_interval: timeInterval,
+                sbd_threshold: sbdThreshold,
+                video_id: videoId
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(err || "Lỗi yêu cầu nạp video");
+        }
+
+        const data = await response.json();
+        console.log("Injest response:", data);
+        alert(data.message);
+        
+        // Reset inputs
+        ingestUrlInput.value = "";
+        ingestVideoIdInput.value = "";
+        
+        // Refresh tasks table
+        if (ingestPollInterval === null && ingestSocket === null) {
+            initIngestMonitoring();
+        }
+
+    } catch (error) {
+        console.error("Start Ingest error:", error);
+        alert(`Lỗi: ${error.message}`);
+    } finally {
+        startIngestBtn.disabled = false;
+        startIngestBtn.textContent = "⚡ Bắt đầu nạp";
+    }
+}
+
+// Ingest Monitoring Initialization
+function initIngestMonitoring() {
+    // Try WebSocket first
+    connectWebSocket();
+}
+
+// Connect to WebSocket
+function connectWebSocket() {
+    if (ingestSocket) {
+        ingestSocket.close();
+    }
+    if (ingestPollInterval) {
+        clearInterval(ingestPollInterval);
+        ingestPollInterval = null;
+    }
+
+    // Convert http endpoint to ws
+    const wsUrl = API_BASE_URL.replace(/^http/, 'ws') + '/api/v1/videos/ingest/ws';
+    console.log("Connecting to WebSocket:", wsUrl);
+
+    try {
+        ingestSocket = new WebSocket(wsUrl);
+
+        ingestSocket.onopen = () => {
+            console.log("WebSocket connection established");
+            wsStatusIcon.className = "status-dot online";
+            wsStatusText.textContent = "Kết nối WebSocket thành công (Real-time)";
+        };
+
+        ingestSocket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === "tasks_update") {
+                    renderIngestTaskList(data.tasks);
+                }
+            } catch (err) {
+                console.error("Error parsing WebSocket message:", err);
+            }
+        };
+
+        ingestSocket.onerror = (error) => {
+            console.error("WebSocket error:", error);
+        };
+
+        ingestSocket.onclose = () => {
+            console.log("WebSocket connection closed. Switching to polling fallback...");
+            ingestSocket = null;
+            wsStatusIcon.className = "status-dot offline";
+            wsStatusText.textContent = "Mất kết nối WebSocket (Đang Polling)";
+            startPolling();
+        };
+
+    } catch (err) {
+        console.error("Failed to create WebSocket:", err);
+        startPolling();
+    }
+}
+
+// Fallback Polling
+function startPolling() {
+    if (ingestPollInterval) {
+        clearInterval(ingestPollInterval);
+    }
+    
+    // Initial fetch
+    fetchTasksViaApi();
+
+    // Poll every 3 seconds
+    ingestPollInterval = setInterval(fetchTasksViaApi, 3000);
+}
+
+// Fetch tasks via standard REST API
+async function fetchTasksViaApi() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/videos/ingest/tasks`);
+        if (response.ok) {
+            const tasks = await response.json();
+            renderIngestTaskList(tasks);
+        }
+    } catch (err) {
+        console.error("Polling error fetching tasks:", err);
+    }
+}
+
+// Render tasks list in the table
+function renderIngestTaskList(tasks) {
+    if (!ingestTaskListBody) return;
+
+    if (!tasks || tasks.length === 0) {
+        ingestTaskListBody.innerHTML = `
+            <tr>
+                <td colspan="6" class="table-empty">Chưa có tác vụ nạp video nào được khởi chạy.</td>
+            </tr>
+        `;
+        return;
+    }
+
+    // Sort tasks: put pending/processing first, then completed/failed
+    tasks.sort((a, b) => {
+        const aActive = ["PENDING", "DOWNLOADING", "EXTRACTING", "INDEXING", "PROCESSING"].includes(a.status);
+        const bActive = ["PENDING", "DOWNLOADING", "EXTRACTING", "INDEXING", "PROCESSING"].includes(b.status);
+        if (aActive && !bActive) return -1;
+        if (!aActive && bActive) return 1;
+        return b.id.localeCompare(a.id);
+    });
+
+    let html = "";
+    tasks.forEach(task => {
+        const isChannel = task.type === "channel";
+        const taskName = isChannel ? task.channel_name : task.id;
+        const typeLabel = isChannel ? "📁 Channel" : "🎥 Video";
+        
+        // Progress display
+        let progressHtml = "";
+        if (isChannel) {
+            const completed = task.completed_videos || 0;
+            const failed = task.failed_videos || 0;
+            const total = task.total_videos || 1;
+            const pct = Math.round(((completed + failed) / total) * 100);
+            progressHtml = `
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" style="width: ${pct}%"></div>
+                </div>
+                <span class="progress-percent">${completed}/${total} (${pct}%)</span>
+            `;
+        } else {
+            const pct = task.progress || 0;
+            progressHtml = `
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" style="width: ${pct}%"></div>
+                </div>
+                <span class="progress-percent">${pct}%</span>
+            `;
+        }
+
+        // Status badge
+        const status = task.status.toLowerCase();
+        const statusBadge = `<span class="status-badge ${status}">${task.status}</span>`;
+
+        // Message
+        const message = isChannel ? `Đã hoàn tất ${task.completed_videos} video, lỗi/hủy ${task.failed_videos} video.` : (task.message || "");
+
+        // Cancel action button
+        const canCancel = ["PENDING", "DOWNLOADING", "EXTRACTING", "INDEXING", "PROCESSING"].includes(task.status);
+        const actionButton = canCancel 
+            ? `<button onclick="handleCancelTask('${task.id}', '${task.type}')" class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: #e74c3c; border-color: #e74c3c;">🚫 Hủy</button>` 
+            : `<span style="color: #a4b0be; font-size: 11px;">-</span>`;
+
+        html += `
+            <tr>
+                <td style="font-weight: 500;">
+                    <div title="${task.id}">${taskName}</div>
+                    <div style="font-size: 10px; color: #747d8c; margin-top: 2px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <a href="${task.video_url || task.channel_url || '#'}" target="_blank">${task.video_url || task.channel_url || 'N/A'}</a>
+                    </div>
+                </td>
+                <td>${typeLabel}</td>
+                <td>${statusBadge}</td>
+                <td style="white-space: nowrap;">${progressHtml}</td>
+                <td style="font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${message}">${message}</td>
+                <td>${actionButton}</td>
+            </tr>
+        `;
+    });
+
+    ingestTaskListBody.innerHTML = html;
+}
+
+// Handle task cancellation
+async function handleCancelTask(taskId, taskType) {
+    if (!confirm(`Bạn có chắc chắn muốn hủy tác vụ ${taskType === 'channel' ? 'channel' : 'video'} ${taskId}?`)) {
+        return;
+    }
+
+    try {
+        const url = `${API_BASE_URL}/api/v1/videos/ingest/cancel/${taskType}/${taskId}`;
+        const response = await fetch(url, { method: 'POST' });
+        if (response.ok) {
+            console.log(`Cancellation request sent for ${taskId}`);
+        } else {
+            console.error("Cancel failed status:", response.status);
+        }
+    } catch (err) {
+        console.error("Error cancelling task:", err);
+    }
+}
+
+// Export function to global window scope so HTML onclick handlers can access it
+window.handleCancelTask = handleCancelTask;
 
 // Start the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', init);

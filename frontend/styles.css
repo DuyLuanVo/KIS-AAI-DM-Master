@@ -724,3 +724,242 @@ header h1 {
         padding: 12px;
     }
 }
+
+/* ==========================================================================
+   NEW STYLES: Tab Navigation & Ingest Monitoring
+   ========================================================================== */
+
+/* Font Family Global override to modern Outfit/Inter */
+body {
+    font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.header-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.logo-icon {
+    font-size: 24px;
+}
+
+/* Tab Navigation */
+.tab-navigation {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-tab {
+    background-color: #f1f2f6;
+    color: #2f3542;
+    border: 1px solid transparent;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.btn-tab:hover {
+    background-color: #dfe4ea;
+}
+
+.btn-tab.active {
+    background: linear-gradient(135deg, #3498db, #2980b9);
+    color: white;
+    box-shadow: 0 4px 6px rgba(52, 152, 219, 0.2);
+}
+
+/* Tab Content Visibility */
+.tab-content {
+    display: none;
+    width: 100%;
+}
+
+.tab-content.active {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Ingestion Form & Inputs */
+.select-input, .text-input, .number-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ced6e0;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    color: #2f3542;
+    background-color: white;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.select-input:focus, .text-input:focus, .number-input:focus {
+    border-color: #3498db;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.15);
+}
+
+/* Connection Status */
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #747d8c;
+    background: #f1f2f6;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-dot.online {
+    background-color: #2ed573;
+    box-shadow: 0 0 8px #2ed573;
+}
+
+.status-dot.offline {
+    background-color: #ff4757;
+    box-shadow: 0 0 8px #ff4757;
+}
+
+/* Ingest Tasks Table */
+.tasks-table-container {
+    width: 100%;
+    overflow-x: auto;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.tasks-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13px;
+}
+
+.tasks-table th {
+    background-color: #f8f9fa;
+    color: #57606f;
+    font-weight: 600;
+    padding: 12px 16px;
+    border-bottom: 2px solid #f1f2f6;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+}
+
+.tasks-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f1f2f6;
+    color: #2f3542;
+    vertical-align: middle;
+}
+
+.tasks-table tbody tr:hover {
+    background-color: #fafbfc;
+}
+
+.table-empty {
+    text-align: center;
+    color: #a4b0be;
+    padding: 30px !important;
+    font-style: italic;
+}
+
+/* Status Badges */
+.status-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-badge.pending {
+    background-color: #ffeaa7;
+    color: #d35400;
+}
+
+.status-badge.downloading {
+    background-color: #d1f2eb;
+    color: #117a65;
+}
+
+.status-badge.extracting {
+    background-color: #ebdef0;
+    color: #76278a;
+}
+
+.status-badge.indexing {
+    background-color: #e8daef;
+    color: #6c3483;
+}
+
+.status-badge.completed {
+    background-color: #d4efdf;
+    color: #196f3d;
+}
+
+.status-badge.cancelled {
+    background-color: #f2f3f4;
+    color: #7f8c8d;
+}
+
+.status-badge.failed {
+    background-color: #fadbd8;
+    color: #943126;
+}
+
+/* Progress bar */
+.progress-bar-container {
+    width: 100px;
+    height: 8px;
+    background-color: #f1f2f6;
+    border-radius: 4px;
+    overflow: hidden;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 8px;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2ecc71, #27ae60);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.progress-percent {
+    font-weight: 600;
+    font-size: 11px;
+    color: #2f3542;
+    display: inline-block;
+    vertical-align: middle;
+}
+

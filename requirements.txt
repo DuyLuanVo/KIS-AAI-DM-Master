@@ -17,3 +17,10 @@ pytest>=7.0.0
 black>=23.0.0
 flake8>=6.0.0
 pre-commit
+
+# Ingestion dependencies
+redis>=5.0.0
+aiokafka>=0.10.0
+yt-dlp>=2024.03.10
+ultralytics>=8.0.0
+

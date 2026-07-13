@@ -41,6 +41,21 @@ class Settings(BaseSettings):
     minio_bucket: str = "kis-keyframes"
     minio_secure: bool = False
 
+    # Redis
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_db: int = 0
+
+    # Kafka
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_ingest_topic: str = "video-ingest-tasks"
+    kafka_vector_topic: str = "keyframe-vector-tasks"
+
+    # Ingestion Defaults
+    default_extraction_method: str = "SBD"
+    default_time_interval: float = 2.0
+    default_sbd_threshold: float = 0.3
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

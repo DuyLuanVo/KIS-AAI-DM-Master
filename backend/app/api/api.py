@@ -1,7 +1,7 @@
 """
 API router configuration
 """
-from app.api.endpoints import health, video_search
+from app.api.endpoints import health, video_search, video_ingest
 from fastapi import APIRouter
 
 # Create main API router
@@ -13,4 +13,9 @@ api_router.include_router(
     video_search.router,
     prefix="/api/v1/videos",
     tags=["video-search"]
+)
+api_router.include_router(
+    video_ingest.router,
+    prefix="/api/v1/videos/ingest",
+    tags=["video-ingestion"]
 )

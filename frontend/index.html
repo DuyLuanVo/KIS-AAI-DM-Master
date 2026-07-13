@@ -3,98 +3,190 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Search UI</title>
+    <title>KIS Video Retrieval & Ingestion System</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="main-container">
         <header>
-            <h1>Video Search</h1>
+            <div class="header-logo">
+                <span class="logo-icon">🚀</span>
+                <h1>Keyframe Information System (KIS)</h1>
+            </div>
+            <!-- Tab Navigation Header -->
+            <div class="tab-navigation">
+                <button type="button" id="searchTabBtn" class="btn btn-tab active">🔍 Tìm kiếm Keyframe</button>
+                <button type="button" id="ingestTabBtn" class="btn btn-tab">📥 Nạp Video Tự động</button>
+            </div>
         </header>
 
-        <div class="content-wrapper">
-            <!-- Left Sidebar - Input Section -->
-            <div class="sidebar">
-                <div class="search-section">
-                    <!-- Search Mode Selection -->
-                    <div class="mode-selector">
-                        <button type="button" id="textModeBtn" class="btn btn-mode active">🔤 Tìm bằng văn bản</button>
-                        <button type="button" id="imageModeBtn" class="btn btn-mode">🖼️ Tìm bằng ảnh</button>
-                    </div>
-
-                    <!-- Text Search Section -->
-                    <div id="textInputSection" class="input-section">
-                        <div class="input-group">
-                            <label for="queryInput">Nhập câu query (mỗi dòng một câu):</label>
-                            <textarea
-                                id="queryInput"
-                                placeholder="Ví dụ:&#10;a person walking&#10;a person with red hat is walking&#10;car driving"
-                                rows="4"
-                            ></textarea>
+        <!-- SEARCH TAB CONTENT -->
+        <div id="searchTabContent" class="tab-content active">
+            <div class="content-wrapper">
+                <!-- Left Sidebar - Input Section -->
+                <div class="sidebar">
+                    <div class="search-section">
+                        <!-- Search Mode Selection -->
+                        <div class="mode-selector">
+                            <button type="button" id="textModeBtn" class="btn btn-mode active">🔤 Tìm bằng văn bản</button>
+                            <button type="button" id="imageModeBtn" class="btn btn-mode">🖼️ Tìm bằng ảnh</button>
                         </div>
-                    </div>
 
-                    <!-- Image Search Section -->
-                    <div id="imageInputSection" class="input-section" style="display: none;">
-                        <div class="input-group">
-                            <label for="imageInput">Chọn ảnh để tìm kiếm:</label>
-                            <input type="file" id="imageInput" accept="image/*" class="file-input">
-                            <div class="upload-hint">
-                                💡 <strong>Mẹo:</strong> Bạn có thể dán ảnh trực tiếp bằng <kbd>Ctrl+V</kbd>
+                        <!-- Text Search Section -->
+                        <div id="textInputSection" class="input-section">
+                            <div class="input-group">
+                                <label for="queryInput">Nhập câu query (mỗi dòng một câu):</label>
+                                <textarea
+                                    id="queryInput"
+                                    placeholder="Ví dụ:&#10;a person walking&#10;a person with red hat is walking&#10;car driving"
+                                    rows="4"
+                                ></textarea>
                             </div>
-                            <div id="imagePreview" class="image-preview">
-                                <div class="upload-placeholder">
-                                    🖼️ Chưa có ảnh được chọn<br>
-                                    <small>Chọn file hoặc dán ảnh (Ctrl+V)</small>
+                        </div>
+
+                        <!-- Image Search Section -->
+                        <div id="imageInputSection" class="input-section" style="display: none;">
+                            <div class="input-group">
+                                <label for="imageInput">Chọn ảnh để tìm kiếm:</label>
+                                <input type="file" id="imageInput" accept="image/*" class="file-input">
+                                <div class="upload-hint">
+                                    💡 <strong>Mẹo:</strong> Bạn có thể dán ảnh trực tiếp bằng <kbd>Ctrl+V</kbd>
+                                </div>
+                                <div id="imagePreview" class="image-preview">
+                                    <div class="upload-placeholder">
+                                        🖼️ Chưa có ảnh được chọn<br>
+                                        <small>Chọn file hoặc dán ảnh (Ctrl+V)</small>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Object Filter Section -->
-                    <div class="input-group">
-                        <label for="objectInput">Lọc theo object (tùy chọn, mỗi dòng một object):</label>
-                        <textarea
-                            id="objectInput"
-                            placeholder="Ví dụ:&#10;Human face&#10;Person&#10;Car"
-                            rows="3"
-                        ></textarea>
-                    </div>
+                        <!-- Object Filter Section -->
+                        <div class="input-group">
+                            <label for="objectInput">Lọc theo object (tùy chọn, mỗi dòng một object):</label>
+                            <textarea
+                                id="objectInput"
+                                placeholder="Ví dụ:&#10;Human face&#10;Person&#10;Car"
+                                rows="3"
+                            ></textarea>
+                        </div>
 
-                    <!-- Search Buttons -->
-                    <div class="button-group">
-                        <button type="button" id="searchBtn" class="btn btn-primary">🔍 Tìm kiếm</button>
-                        <button type="button" id="searchMoreBtn" class="btn btn-secondary" disabled>➕ Tìm tiếp</button>
+                        <!-- Search Buttons -->
+                        <div class="button-group">
+                            <button type="button" id="searchBtn" class="btn btn-primary">🔍 Tìm kiếm</button>
+                            <button type="button" id="searchMoreBtn" class="btn btn-secondary" disabled>➕ Tìm tiếp</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Side - Results Section -->
+                <div class="main-content">
+                    <div class="results-section" id="resultsSection">
+                        <div class="results-header">
+                            <h2>Kết quả tìm kiếm</h2>
+                            <div class="pagination-info">
+                                <span id="paginationInfo">Hiển thị 1-20 của 0 kết quả</span>
+                            </div>
+                        </div>
+
+                        <!-- Query Statistics -->
+                        <div id="queryStats" class="query-stats"></div>
+
+                        <!-- Pagination Controls -->
+                        <div class="pagination-controls">
+                            <button type="button" id="prevBtn" class="btn btn-outline" disabled>
+                                ← Trước
+                            </button>
+                            <button type="button" id="nextBtn" class="btn btn-outline" disabled>
+                                Tiếp →
+                            </button>
+                        </div>
+
+                        <!-- Grid Container -->
+                        <div class="grid-container" id="gridContainer">
+                            <!-- Grid items will be dynamically added here -->
+                        </div>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Right Side - Results Section -->
-            <div class="main-content">
-                <div class="results-section" id="resultsSection">
-                    <div class="results-header">
-                        <h2>Kết quả tìm kiếm</h2>
-                        <div class="pagination-info">
-                            <span id="paginationInfo">Hiển thị 1-20 của 0 kết quả</span>
+        <!-- INGEST TAB CONTENT -->
+        <div id="ingestTabContent" class="tab-content">
+            <div class="content-wrapper">
+                <!-- Left Sidebar - Ingestion Form -->
+                <div class="sidebar">
+                    <div class="search-section">
+                        <h3>📥 Cấu hình Nạp Video</h3>
+                        
+                        <div class="input-group">
+                            <label for="ingestUrlInput">Đường dẫn Video / Playlist YouTube:</label>
+                            <input type="text" id="ingestUrlInput" placeholder="https://www.youtube.com/watch?v=..." class="text-input">
+                        </div>
+
+                        <div class="input-group">
+                            <label for="ingestVideoIdInput">Video ID tùy chọn (Lần lượt cho single video):</label>
+                            <input type="text" id="ingestVideoIdInput" placeholder="Ví dụ: L21_V099" class="text-input">
+                        </div>
+
+                        <div class="input-group">
+                            <label for="ingestMethodSelect">Phương pháp trích xuất keyframe:</label>
+                            <select id="ingestMethodSelect" class="select-input">
+                                <option value="SBD">Shot Boundary Detection (SBD)</option>
+                                <option value="TIME">Theo khoảng thời gian (TIME)</option>
+                            </select>
+                        </div>
+
+                        <!-- TIME configuration (only visible when TIME is selected) -->
+                        <div id="ingestTimeConfig" class="input-group" style="display: none;">
+                            <label for="ingestIntervalInput">Khoảng thời gian chụp (giây):</label>
+                            <input type="number" id="ingestIntervalInput" value="2.0" step="0.5" min="0.5" class="number-input">
+                        </div>
+
+                        <!-- SBD configuration (only visible when SBD is selected) -->
+                        <div id="ingestSbdConfig" class="input-group">
+                            <label for="ingestSbdThresholdInput">Ngưỡng phát hiện chuyển phân cảnh (Threshold):</label>
+                            <input type="number" id="ingestSbdThresholdInput" value="0.3" step="0.05" min="0.05" max="1.0" class="number-input">
+                        </div>
+
+                        <div class="button-group">
+                            <button type="button" id="startIngestBtn" class="btn btn-primary">⚡ Bắt đầu nạp</button>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Query Statistics -->
-                    <div id="queryStats" class="query-stats"></div>
+                <!-- Right Side - Ingestion Tasks Monitor -->
+                <div class="main-content">
+                    <div class="results-section">
+                        <div class="results-header">
+                            <h2>📊 Giám sát Tiến trình Nạp Video</h2>
+                            <div class="connection-status">
+                                <span id="wsStatusIcon" class="status-dot offline"></span>
+                                <span id="wsStatusText">Mất kết nối WebSocket (Đang Polling)</span>
+                            </div>
+                        </div>
 
-                    <!-- Pagination Controls -->
-                    <div class="pagination-controls">
-                        <button type="button" id="prevBtn" class="btn btn-outline" disabled>
-                            ← Trước
-                        </button>
-                        <button type="button" id="nextBtn" class="btn btn-outline" disabled>
-                            Tiếp →
-                        </button>
-                    </div>
-
-                    <!-- Grid Container -->
-                    <div class="grid-container" id="gridContainer">
-                        <!-- Grid items will be dynamically added here -->
+                        <!-- Tasks list container -->
+                        <div class="tasks-table-container">
+                            <table class="tasks-table">
+                               <thead>
+                                   <tr>
+                                       <th>ID / Tên Tác vụ</th>
+                                       <th>Loại</th>
+                                       <th>Trạng thái</th>
+                                       <th>Tiến độ</th>
+                                       <th>Thông điệp</th>
+                                       <th>Hành động</th>
+                                   </tr>
+                               </thead>
+                               <tbody id="ingestTaskListBody">
+                                   <tr>
+                                       <td colspan="6" class="table-empty">Chưa có tác vụ nạp video nào được khởi chạy.</td>
+                                   </tr>
+                               </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -151,6 +243,6 @@
         </div>
     </div>
 
-    <script src="script.js?v=2"></script>
+    <script src="script.js?v=3"></script>
 </body>
 </html>
