@@ -1,146 +1,93 @@
 # Video Retrieval API Backend
 
-FastAPI backend cho hệ thống video retrieval với Qdrant vector database.
+FastAPI backend cho hệ thống Video Retrieval và nạp dữ liệu tự động bất đồng bộ với Qdrant vector database, MinIO object storage, Redis state store, và hàng đợi Kafka.
 
-## Cấu trúc dự án
+## Cấu trúc thư mục Backend
 
 ```
 backend/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                 # Entry point
-│   ├── config.py              # Cấu hình ứng dụng
+│   ├── main.py                 # Điểm khởi chạy chính & Lifespan setup
+│   ├── config.py              # Cấu hình cài đặt (Redis, MinIO, Qdrant, CLIP, YOLO)
 │   ├── api/
 │   │   ├── __init__.py
-│   │   ├── api.py             # API router
+│   │   ├── api.py             # Router tổng kết hợp các endpoint
 │   │   └── endpoints/
 │   │       ├── __init__.py
-│   │       ├── health.py      # Health check endpoints
-│   │       └── vectors.py     # Vector operations endpoints
+│   │       ├── health.py      # Kiểm tra sức khỏe hệ thống và Qdrant
+│   │       ├── video_search.py# API tìm kiếm lai (CLIP + YOLO)
+│   │       └── video_ingest.py# API nạp video, quản lý task và WebSocket
 │   ├── core/
 │   │   ├── __init__.py
-│   │   └── logging.py         # Logging configuration
+│   │   └── logging.py         # Cấu hình logging qua Loguru
 │   ├── database/
 │   │   ├── __init__.py
-│   └── └── qdrant_client.py   # Qdrant client
-│   └── models/
+│   │   └── qdrant_client.py   # Client kết nối và truy vấn Qdrant
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── schemas.py         # Khai báo cấu trúc dữ liệu Pydantic
+│   └── services/
 │       ├── __init__.py
-│       └── schemas.py         # Pydantic models
-├── requirements.txt           # Python dependencies
-├── env.example               # Environment variables template
-└── README.md                 # This file
+│       ├── clip_service.py    # Nhúng vector văn bản & ảnh bằng CLIP
+│       ├── yolo_service.py    # Phát hiện vật thể YOLOv8
+│       ├── redis_service.py   # Lưu trạng thái, cờ hủy (Có In-Memory Fallback)
+│       └── ingest_worker_service.py # Xử lý tác vụ ngầm (Tải, cắt SBD/TIME, upload)
+├── requirements.txt           # Danh sách thư viện Python
+├── env.example               # File cấu hình môi trường mẫu
+└── README.md                 # Tài liệu hướng dẫn này
 ```
 
-## Cài đặt
+---
 
-1. **Cài đặt dependencies:**
-```bash
-pip install -r requirements.txt
-```
+## Các API Endpoints chính
 
-2. **Cấu hình environment:**
-```bash
-cp env.example .env
-# Chỉnh sửa .env theo nhu cầu
-```
+### 1. Tìm kiếm (Video Search)
+* `POST /api/v1/videos/search/text` - Tìm kiếm bằng câu văn bản mô tả + lọc nhãn vật thể YOLO.
+* `POST /api/v1/videos/search/image` - Tìm kiếm bằng ảnh tương tự (Base64) + lọc nhãn vật thể YOLO.
+* `GET /api/v1/videos/keyframes/{jpg_path:path}` - Lấy ảnh keyframe (Redirect trực tiếp từ MinIO qua pre-signed URL).
 
-3. **Khởi chạy cụm dịch vụ Qdrant và MinIO:**
-```bash
-docker-compose up -d
-```
+### 2. Nạp Video Tự động (Video Ingestion)
+* `POST /api/v1/videos/ingest` - Khởi tạo tác vụ nạp video từ YouTube (hỗ trợ video lẻ, playlist hoặc kênh có `@`).
+* `GET /api/v1/videos/ingest/tasks` - Lấy danh sách toàn bộ tác vụ đang chạy và đã hoàn thành.
+* `GET /api/v1/videos/ingest/status/video/{video_id}` - Trạng thái tiến độ (%) của một video cụ thể.
+* `GET /api/v1/videos/ingest/status/channel/{channel_id}` - Trạng thái của một tiến trình kênh cha.
+* `POST /api/v1/videos/ingest/cancel/video/{video_id}` - Phát cờ hủy tác vụ xử lý của một video cụ thể.
+* `POST /api/v1/videos/ingest/cancel/channel/{channel_id}` - Phát cờ hủy xử lý của toàn bộ video thuộc một kênh.
+* `WebSocket /api/v1/videos/ingest/ws` - Đẩy danh sách cập nhật tiến trình của tất cả các task thời gian thực.
 
-## Chạy ứng dụng
+### 3. Kiểm tra sức khỏe (Health Check)
+* `GET /health` - Trạng thái sức khỏe chung của ứng dụng.
+* `GET /health/qdrant` - Trạng thái kết nối đến cơ sở dữ liệu Qdrant.
 
-### Development mode:
-```bash
-python -m app.main
-```
+---
 
-### Production mode:
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
+## Hướng dẫn Khởi chạy API
 
-## API Endpoints
+1. **Cài đặt thư viện:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Cấu hình môi trường:**
+   ```bash
+   cp env.example .env
+   ```
+3. **Khởi chạy API Gateway:**
+   ```bash
+   python run.py
+   ```
+   * Cổng hoạt động mặc định: `http://localhost:8000`.
+   * Tài liệu API tương tác (Swagger UI): `http://localhost:8000/docs`.
 
-### Health Check
-- `GET /health` - Health check tổng quát
-- `GET /health/qdrant` - Health check Qdrant
+---
 
-### Vector Operations
-- `POST /api/v1/vectors/search` - Tìm kiếm vector tương tự
-- `POST /api/v1/vectors/upload` - Upload vectors
-- `DELETE /api/v1/vectors/delete` - Xóa vectors
-- `GET /api/v1/vectors/collection-info` - Thông tin collection
+## Các Dịch vụ AI & Logic chính
 
-### Documentation
-- `GET /docs` - Swagger UI
-- `GET /redoc` - ReDoc
+### 1. Shot Boundary Detection (SBD)
+Mô hình phát hiện chuyển cảnh phân tích biểu đồ màu sắc HSV Color Histogram của các frame liên tiếp trong OpenCV. Nếu sự chênh lệch (đo bằng phương pháp correlation) vượt quá ngưỡng `SBD_THRESHOLD` (mặc định `0.3`), nó sẽ lưu khung hình hiện tại làm keyframe đại diện.
 
-## Ví dụ sử dụng
+### 2. YOLOv8 Object Detection
+Sử dụng mô hình YOLOv8n (`yolov8n.pt`) của Ultralytics để nhận dạng các vật thể trong keyframe (độ tin cậy > 0.5), từ đó thu thập nhãn đối tượng (labels) và tọa độ bounding box chuẩn hóa để ghi vào payload của Qdrant database. Hỗ trợ tự động chạy ở chế độ fallback không nhãn nếu môi trường chưa cài đặt `ultralytics`.
 
-### Health Check
-```bash
-curl http://localhost:8000/health
-```
-
-### Upload Vectors
-```bash
-curl -X POST "http://localhost:8000/api/v1/vectors/upload" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "vectors": [[0.1, 0.2, 0.3, ...]],
-    "ids": ["vector_1"],
-    "payloads": [{"metadata": "test"}]
-  }'
-```
-
-### Search Vectors
-```bash
-curl -X POST "http://localhost:8000/api/v1/vectors/search" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query_vector": [0.1, 0.2, 0.3, ...],
-    "limit": 10,
-    "score_threshold": 0.7
-  }'
-```
-
-## Cấu hình
-
-Các cấu hình chính trong `app/config.py`:
-
-- `qdrant_host`: Host của Qdrant server
-- `qdrant_port`: Port của Qdrant server
-- `qdrant_collection`: Tên collection
-- `minio_endpoint`: Endpoint của MinIO server (mặc định: `localhost:9000`)
-- `minio_access_key`: Access Key của MinIO (mặc định: `minioadmin`)
-- `minio_secret_key`: Secret Key của MinIO (mặc định: `minioadmin`)
-- `minio_bucket`: Tên bucket chứa ảnh keyframes (mặc định: `kis-keyframes`)
-- `minio_secure`: Sử dụng kết nối bảo mật HTTPS hay HTTP (mặc định: `False`)
-- `qdrant_vector_size`: Kích thước vector (mặc định: 512)
-
-## Logging
-
-Ứng dụng sử dụng Loguru cho logging:
-- Console output với màu sắc
-- File logging trong production
-- Rotation và compression tự động
-
-## Development
-
-### Code formatting:
-```bash
-black app/
-isort app/
-```
-
-### Linting:
-```bash
-flake8 app/
-```
-
-### Testing:
-```bash
-pytest
-```
+### 3. Cờ Hủy Tác vụ Bất đồng bộ
+Khi người dùng kích hoạt hủy, cờ hủy được lưu trên Redis. Worker xử lý video định kỳ kiểm tra cờ này ở các giai đoạn (Tải xuống, Cắt ảnh, Xử lý AI, Index DB). Nếu phát hiện cờ hủy, worker sẽ tự ngắt, dọn sạch dữ liệu point dở dang trên Qdrant và các ảnh đã tải lên MinIO.

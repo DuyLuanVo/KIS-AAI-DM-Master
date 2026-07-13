@@ -1,40 +1,30 @@
-# 🚀 Hướng dẫn triển khai Qdrant Video Keyframes Loader
+# 🚀 Hướng dẫn triển khai Qdrant Video Keyframes Loader (Offline Batch Data)
 
-## 📋 Tổng quan
+Tài liệu này hướng dẫn nạp tập dữ liệu offline gốc (như CLIP features `.npy`, Metadata `.csv`, và Objects `.json` từ thư mục `data/` cục bộ) vào **Qdrant Vector Database**.
 
-File này hướng dẫn bạn triển khai pipeline để load dữ liệu video keyframes vào Qdrant Vector Database theo đúng cấu trúc dữ liệu mà bạn đã mô tả.
+*(Để chạy hệ thống nạp tự động qua giao diện Web và URL YouTube, vui lòng đọc tài liệu [README.md](file:///d:/Study/Postgrad/HK2/AAI%26DM/KIS/README.md) ở thư mục gốc).*
+
+---
 
 ## 🛠️ Chuẩn bị
 
-### 1. Cài đặt dependencies
-
+### 1. Cài đặt các thư viện Python
+Cài đặt dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-Hoặc cài đặt thủ công:
-
+### 2. Khởi chạy Cụm dịch vụ Docker
+Khởi chạy toàn bộ hạ tầng (bao gồm Qdrant):
 ```bash
-pip install numpy pandas tqdm qdrant-client
+docker-compose up -d
 ```
+*(Qdrant sẽ chạy tại cổng `6333` và dữ liệu được lưu trữ cố định trong thư mục `./qdrant_storage`)*
 
-### 2. Cài đặt và chạy Qdrant
-
-**Sử dụng Docker (khuyến nghị):**
-```bash
-docker run -p 6333:6333 qdrant/qdrant
+### 3. Cấu trúc dữ liệu cục bộ
+Đảm bảo thư mục dữ liệu của bạn có cấu trúc như sau (mặc định đặt trong thư mục `data/` của dự án):
 ```
-
-**Hoặc tải và cài đặt binary:**
-- Tải từ: https://github.com/qdrant/qdrant/releases
-- Chạy: `./qdrant`
-
-### 3. Cấu trúc dữ liệu
-
-Đảm bảo dữ liệu của bạn có cấu trúc như sau:
-
-```
-/path/to/your/data/
+data/
 ├── clip-features-32-aic25-b1/clip-features-32/
 │   ├── L21_V001.npy
 │   ├── L21_V002.npy
@@ -57,110 +47,68 @@ docker run -p 6333:6333 qdrant/qdrant
     └── ...
 ```
 
-## 🔧 Cấu hình
+---
 
-### Mở file `run_loader.py` và cập nhật:
+## 🔧 Cấu hình Loader
 
+### 1. Cập nhật đường dẫn trong `pipeline/loaders/run_loader.py`
+Mở file [run_loader.py](file:///d:/Study/Postgrad/HK2/AAI%26DM/KIS/pipeline/loaders/run_loader.py) và cập nhật đường dẫn tương ứng với thư mục dữ liệu cục bộ của bạn:
 ```python
 # Cập nhật đường dẫn data của bạn
-DATA_ROOT = "/path/to/your/data"  # ⚠️ SỬA DÒNG NÀY
+DATA_ROOT = "D:/path/to/your/data"  # ⚠️ SỬA DÒNG NÀY
 
-# Kiểm tra các đường dẫn khác nếu cần
 CLIP_DIR = "clip-features-32-aic25-b1/clip-features-32"
 CSV_DIR = "map-keyframes-aic25-b1/map-keyframes"
 OBJ_DIR = "objects-aic25-b1/objects"
 ```
 
-### Kiểm tra cấu hình Qdrant:
+---
 
-```python
-QDRANT_HOST = "localhost"    # Địa chỉ Qdrant server
-QDRANT_PORT = 6333           # Port Qdrant
-COLLECTION = "video_keyframes"  # Tên collection
-```
+## 🚀 Chạy Pipeline Nạp dữ liệu Offline
 
-## 🚀 Chạy Pipeline
+### Bước 1: Chạy thử nghiệm Loader
+Mặc định, loader sẽ:
+* Kiểm tra kết nối Qdrant tại `localhost:6333`.
+* Tạo collection `video_keyframes` với cấu hình vector 512 dimensions (Cosine Distance).
+* Đọc thử cấu trúc file dữ liệu để xác thực tính hợp lệ.
 
-### Bước 1: Test cấu hình
-
+Để khởi chạy:
 ```bash
-python run_loader.py
+python pipeline/loaders/run_loader.py
 ```
 
-Script sẽ:
-- ✅ Kiểm tra đường dẫn dữ liệu
-- ✅ Kiểm tra kết nối Qdrant
-- ✅ Validate mẫu file dữ liệu
-- ✅ Tạo collection trong Qdrant
-
-### Bước 2: Chạy load dữ liệu
-
-**Mặc định script chỉ xử lý 3 video đầu tiên để demo.**
-
-Để xử lý tất cả video, sửa dòng này trong `run_loader.py`:
-
+### Bước 2: Nạp toàn bộ Dataset
+Mặc định script chỉ xử lý **3 video đầu tiên** để demo. Để nạp toàn bộ 873 video, hãy chỉnh sửa trong file [run_loader.py](file:///d:/Study/Postgrad/HK2/AAI%26DM/KIS/pipeline/loaders/run_loader.py):
 ```python
-# Từ:
+# Tìm dòng này:
 for npy_file in tqdm(video_files[:3], desc="Processing"):
 
-# Thành:
+# Đổi thành:
 for npy_file in tqdm(video_files, desc="Processing"):
 ```
+Sau đó chạy lại lệnh: `python pipeline/loaders/run_loader.py`.
 
-### Bước 3: Theo dõi tiến độ
+---
 
-Script sẽ hiển thị:
+## 📊 Định dạng Schema dữ liệu trong Qdrant
 
-```
-🎬 Qdrant Video Keyframes Loader
-========================================
-🔍 Checking setup...
-✅ Setup looks good!
-📊 Found 873 video files
-✅ L21_V001: (307, 512)
-✅ L21_V002: (262, 512)
-✅ L21_V003: (286, 512)
-📈 Sample check: 3/3 files valid
-✅ Connected to Qdrant at localhost:6333
-✅ Created collection: video_keyframes
-
-📊 Processing 873 videos...
-(Processing first 3 as demo - edit script to process all)
-Processing: 100%|██████████| 3/3 [00:15<00:00,  5.12s/it]
-✅ L21_V001: 307 points uploaded
-✅ L21_V002: 262 points uploaded
-✅ L21_V003: 286 points uploaded
-
-========================================
-🎉 PROCESSING COMPLETE
-Videos processed: 3
-Total points: 855
-Duration: 15.2 seconds
-Collection size: 855 points
-
-✅ Ready for search queries!
-```
-
-## 📊 Schema dữ liệu trong Qdrant
-
-Mỗi point trong Qdrant sẽ có cấu trúc:
-
+Mỗi điểm vector sau khi được nạp thành công sẽ có dạng:
 ```json
 {
-  "id": "L21_V001_001",
+  "id": "e4a7a8d5-12a8-48b6-96a1-a47781b2a95c",  // Định dạng chuỗi UUID (Qdrant yêu cầu UUID chuẩn)
   "vector": [512 dimensions CLIP embedding],
   "payload": {
+    "original_id": "L21_V001_001",
     "video_id": "L21_V001",
     "keyframe_idx": 1,
     "keyframe_name": "001.jpg",
-    "jpg_path": "Keyframes_L21/keyframes/L21_V001/001.jpg",
+    "jpg_path": "keyframes/L21_V001/001.jpg",
     "pts_time": 0.0,
     "frame_idx": 0,
     "fps": 30,
     "batch": "L21",
     "objects": [
-      {"entity": "Lantern", "score": 0.79},
-      {"entity": "Skyscraper", "score": 0.68}
+      {"entity": "Lantern", "score": 0.79673874, "class_name": "/m/01jfsr", "bbox": [0.468, 0.366, 0.581, 0.712]}
     ],
     "object_labels": ["Lantern", "Skyscraper"],
     "object_count": 2,
@@ -169,110 +117,15 @@ Mỗi point trong Qdrant sẽ có cấu trúc:
 }
 ```
 
-## 🔍 Kiểm tra kết quả
-
-### Sử dụng Qdrant Web UI:
-
-1. Mở browser: http://localhost:6333/dashboard
-2. Chọn collection: `video_keyframes`
-3. Xem points và payload
-
-### Sử dụng Python để query:
-
-```python
-from qdrant_client import QdrantClient
-
-client = QdrantClient("localhost", port=6333)
-
-# Lấy thông tin collection
-info = client.get_collection("video_keyframes")
-print(f"Points count: {info.points_count}")
-
-# Lấy một point mẫu
-points = client.scroll(
-    collection_name="video_keyframes",
-    limit=1
-)
-print(points[0])  # In ra point đầu tiên
-```
-
-## ⚠️ Troubleshooting
-
-### Lỗi thường gặp:
-
-1. **"DATA_ROOT not found"**
-   - Kiểm tra đường dẫn DATA_ROOT có đúng không
-   - Đảm bảo thư mục tồn tại và có quyền đọc
-
-2. **"Missing directory"**
-   - Kiểm tra cấu trúc thư mục con
-   - Đảm bảo tên thư mục khớp với config
-
-3. **"Qdrant connection failed"**
-   - Kiểm tra Qdrant server đã chạy chưa
-   - Kiểm tra port 6333 có bị block không
-
-4. **"Wrong shape"**
-   - File .npy có thể bị lỗi
-   - Kiểm tra file có đúng format (N, 512) không
-
-### Debug logs:
-
-Kiểm tra file log: `qdrant_loader.log`
-
-### Giảm memory usage:
-
-Nếu gặp lỗi memory, giảm `BATCH_SIZE`:
-
-```python
-BATCH_SIZE = 100  # Từ 500 xuống 100
-```
-
-## 📈 Tối ưu hóa
-
-### Cho dataset lớn:
-
-1. **Tăng batch size** (nếu có đủ RAM):
-   ```python
-   BATCH_SIZE = 1000
-   ```
-
-2. **Sử dụng multiple workers** (cần modify code):
-   ```python
-   # Thêm concurrent processing
-   from concurrent.futures import ThreadPoolExecutor
-   ```
-
-3. **Monitor memory usage**:
-   ```bash
-   htop  # Linux/Mac
-   # hoặc
-   Task Manager  # Windows
-   ```
-
-### Kiểm tra hiệu suất:
-
-```python
-import time
-start = time.time()
-# ... processing code ...
-print(f"Duration: {time.time() - start:.2f}s")
-```
-
-## 🎯 Next Steps
-
-Sau khi load xong dữ liệu:
-
-1. **Implement search API** với CLIP text encoding
-2. **Build web interface** cho user queries
-3. **Add caching layer** cho popular queries
-4. **Monitor query performance**
-
 ---
 
-## 📞 Support
+## 🔍 Kiểm tra & Truy vấn dữ liệu
 
-Nếu gặp vấn đề:
-1. Kiểm tra logs: `qdrant_loader.log`
-2. Xem Qdrant docs: https://qdrant.tech/documentation/
-3. Test với subset nhỏ trước khi chạy full dataset
+### 1. Truy cập Qdrant Web Dashboard
+Mở trình duyệt: `http://localhost:6333/dashboard` để trực quan hóa collection `video_keyframes` và kiểm tra số lượng points đã nạp.
+
+### 2. Chạy Unit Test kiểm tra tính năng nạp tự động SBD/Redis
+Hệ thống nạp tự động mới có thể kiểm tra qua file unit test:
+```bash
+python tests/test_ingest.py
+```
