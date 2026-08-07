@@ -80,14 +80,15 @@ class VideoQdrantClient:
                 search_filter = Filter(must=filter_conditions)
 
             # Perform vector search
-            search_results = self.client.search(
+            search_response = self.client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 query_filter=search_filter,
                 limit=limit,
                 score_threshold=score_threshold,
                 with_payload=True
             )
+            search_results = search_response.points
 
             # Format results
             results = []
@@ -197,8 +198,8 @@ class VideoQdrantClient:
             return {
                 "collection_name": self.collection_name,
                 "points_count": info.points_count,
-                "vectors_count": info.vectors_count,
-                "status": info.status
+                "vectors_count": getattr(info, "vectors_count", info.points_count),
+                "status": getattr(info, "status", "green")
             }
         except Exception as e:
             logger.error(f"Failed to get collection info: {e}")

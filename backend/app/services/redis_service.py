@@ -79,6 +79,15 @@ class RedisService:
                 channel_data["id"] = task_id
                 channel_data["type"] = "channel"
                 tasks.append(channel_data)
+                continue
+
+            # Try to get image batch status
+            batch_data = self.get_batch_status(task_id)
+            if batch_data:
+                batch_data["id"] = task_id
+                batch_data["type"] = "image_batch"
+                tasks.append(batch_data)
+                continue
 
         # Sort tasks by creation time (or just simple sort)
         return tasks
@@ -170,6 +179,47 @@ class RedisService:
                 val = self.redis_client.get(key)
             except Exception as e:
                 logger.error(f"Redis get_channel_status failed: {e}")
+                val = self._memory_db.get(key)
+                
+        return json.loads(val) if val else None
+
+    def set_batch_status(self, batch_id: str, batch_name: str, total_images: int, completed_images: int, status: str, message: str, progress: float = 0.0):
+        """Set Image Batch Status"""
+        key = self._get_key("batch:status", batch_id)
+        self._track_task(batch_id)
+        
+        data = {
+            "batch_name": batch_name,
+            "total_images": total_images,
+            "completed_images": completed_images,
+            "status": status,
+            "message": message,
+            "progress": round(progress, 1),
+            "updated_at": str(datetime.now())
+        }
+        
+        value_str = json.dumps(data)
+        if self.use_fallback:
+            self._memory_db[key] = value_str
+            logger.info(f"[In-Memory] Batch {batch_id} -> {status} ({completed_images}/{total_images})")
+        else:
+            try:
+                self.redis_client.set(key, value_str, ex=172800)
+                self.redis_client.publish("ingest:status_channel", json.dumps({"id": batch_id, "type": "image_batch", **data}))
+            except Exception as e:
+                logger.error(f"Redis set_batch_status failed: {e}")
+                self._memory_db[key] = value_str
+
+    def get_batch_status(self, batch_id: str) -> Optional[Dict[str, Any]]:
+        """Get Image Batch Status"""
+        key = self._get_key("batch:status", batch_id)
+        if self.use_fallback:
+            val = self._memory_db.get(key)
+        else:
+            try:
+                val = self.redis_client.get(key)
+            except Exception as e:
+                logger.error(f"Redis get_batch_status failed: {e}")
                 val = self._memory_db.get(key)
                 
         return json.loads(val) if val else None
