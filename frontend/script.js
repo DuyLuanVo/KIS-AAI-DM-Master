@@ -56,13 +56,9 @@ const searchTabContent = document.getElementById('searchTabContent');
 const ingestTabContent = document.getElementById('ingestTabContent');
 
 // Ingest Form Elements
-const ingestUrlInput = document.getElementById('ingestUrlInput');
-const ingestVideoIdInput = document.getElementById('ingestVideoIdInput');
-const ingestMethodSelect = document.getElementById('ingestMethodSelect');
-const ingestTimeConfig = document.getElementById('ingestTimeConfig');
-const ingestSbdConfig = document.getElementById('ingestSbdConfig');
-const ingestIntervalInput = document.getElementById('ingestIntervalInput');
-const ingestSbdThresholdInput = document.getElementById('ingestSbdThresholdInput');
+const ingestBatchNameInput = document.getElementById('ingestBatchNameInput');
+const ingestFilesInput = document.getElementById('ingestFilesInput');
+const ingestFilesCountHint = document.getElementById('ingestFilesCountHint');
 const startIngestBtn = document.getElementById('startIngestBtn');
 
 // Monitor Elements
@@ -109,8 +105,8 @@ imageInput.addEventListener('change', handleImageUpload);
 
 // Carousel event listeners
 closeCarousel.addEventListener('click', closeCarouselModal);
-prevFrame.addEventListener('click', showPreviousFrame);
-nextFrame.addEventListener('click', showNextFrame);
+if (prevFrame) prevFrame.addEventListener('click', showPreviousFrame);
+if (nextFrame) nextFrame.addEventListener('click', showNextFrame);
 carouselModal.addEventListener('click', (e) => {
     if (e.target === carouselModal) {
         closeCarouselModal();
@@ -323,9 +319,9 @@ async function performTextSearch(queries, objects, isNewSearch) {
         };
 
         console.log('📤 Request body:', requestBody);
-        console.log('🌐 API URL:', `${API_BASE_URL}/api/v1/videos/search/text`);
+        console.log('🌐 API URL:', `${API_BASE_URL}/api/v1/images/search/text`);
 
-        const response = await fetch(`${API_BASE_URL}/api/v1/videos/search/text`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/search/text`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -372,9 +368,9 @@ async function performImageSearch(imageBase64, objects, isNewSearch) {
 
         console.log('📤 Request body (image base64 length):', imageBase64.length);
         console.log('📤 Object filters:', objects);
-        console.log('🌐 API URL:', `${API_BASE_URL}/api/v1/videos/search/image`);
+        console.log('🌐 API URL:', `${API_BASE_URL}/api/v1/images/search/image`);
 
-        const response = await fetch(`${API_BASE_URL}/api/v1/videos/search/image`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/search/image`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -522,26 +518,21 @@ function createGridItem(result) {
     let imageUrl = result.image_url || result.jpg_path;
     if (!imageUrl.startsWith('http')) {
         const cleanPath = imageUrl.replace(/^\//, '');
-        imageUrl = `${API_BASE_URL}/api/v1/videos/keyframes/${cleanPath}`;
+        imageUrl = `${API_BASE_URL}/api/v1/images/keyframes/${cleanPath}`;
     }
 
-    // Format timestamp
-    const formatTime = (seconds) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    };
+    const objText = (result.objects && result.objects.length > 0) ? `✨ ${result.objects.slice(0, 3).join(', ')}` : `🏛️ Kiến trúc`;
 
-        gridItem.innerHTML = `
+    gridItem.innerHTML = `
         <div class="grid-item-image" style="background-image: url('${imageUrl}')"
              onerror="this.classList.add('error'); this.innerHTML='Không thể tải ảnh';">
             <div class="rank-badge">#${result.rank}</div>
         </div>
         <div class="grid-item-info">
-            <div class="grid-item-title">${result.video_id}</div>
-            <div class="grid-item-score">Điểm: ${(result.similarity_score * 100).toFixed(1)}%</div>
-            <div class="grid-item-time">⏱️ ${formatTime(result.pts_time)}</div>
-            <div class="grid-item-frame">Frame: ${result.keyframe_idx}</div>
+            <div class="grid-item-title" title="Bộ sưu tập: ${result.video_id}">📁 ${result.video_id}</div>
+            <div class="grid-item-score">🎯 AI Score: ${(result.similarity_score * 100).toFixed(1)}%</div>
+            <div class="grid-item-time" style="color: #38bdf8; font-size: 11px; margin-top: 4px;">${objText}</div>
+            <div class="grid-item-frame" style="color: #64748b; font-size: 10px;">ID: #${result.keyframe_idx}</div>
         </div>
     `;
 
@@ -687,12 +678,19 @@ function init() {
         searchTabContent.classList.remove('active');
     });
 
-    // Ingest method change listener
-    ingestMethodSelect.addEventListener('change', (e) => {
-        const method = e.target.value;
-        ingestTimeConfig.style.display = method === 'TIME' ? 'block' : 'none';
-        ingestSbdConfig.style.display = method === 'SBD' ? 'block' : 'none';
-    });
+    // Ingest file select count hint updater
+    if (ingestFilesInput) {
+        ingestFilesInput.addEventListener('change', (e) => {
+            const count = e.target.files.length;
+            if (ingestFilesCountHint) {
+                if (count > 0) {
+                    ingestFilesCountHint.innerHTML = `✅ <strong>Đã chọn:</strong> ${count} tệp ảnh kiến trúc sẵn sàng xử lý.`;
+                } else {
+                    ingestFilesCountHint.innerHTML = `💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Cmd/Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.`;
+                }
+            }
+        });
+    }
 
     // Start Ingest listener
     startIngestBtn.addEventListener('click', handleStartIngestion);
@@ -707,255 +705,119 @@ function init() {
 }
 
 // Carousel Functions
+// Detail Modal Functions for Architectural Photography
 function openCarouselModal(selectedResult) {
-    console.log('🎬 Opening carousel for:', selectedResult);
-
+    console.log('🏛️ Opening photo detail modal for:', selectedResult);
     try {
-        // Parse current frame info from jpg_path
-        // Example: "Keyframes_L26/keyframes/L26_V498/016.jpg"
-        const pathParts = selectedResult.jpg_path.split('/');
-        const fileName = pathParts[pathParts.length - 1]; // "016.jpg"
-        const currentFrameNum = parseInt(fileName.replace('.jpg', '')); // 16
-        const folderPath = pathParts.slice(0, -1).join('/'); // "Keyframes_L26/keyframes/L26_V498"
-
-        // Generate nearby frames (±25 = 50 total)
-        const rangeSize = 25;
-        const startFrame = Math.max(1, currentFrameNum - rangeSize);
-        const endFrame = currentFrameNum + rangeSize;
-
-        console.log(`📊 Generating frames ${startFrame} to ${endFrame} (center: ${currentFrameNum})`);
-
-        currentFrames = [];
-        for (let i = startFrame; i <= endFrame; i++) {
-            const frameFileName = i.toString().padStart(3, '0') + '.jpg';
-            const framePath = `${folderPath}/${frameFileName}`;
-
-            // Calculate estimated pts_time (rough calculation)
-            const estimatedTime = selectedResult.pts_time + ((i - currentFrameNum) * (1 / (selectedResult.fps || 25)));
-            const estimatedFrameIdx = selectedResult.frame_idx + ((i - currentFrameNum) * 1);
-
-            currentFrames.push({
-                original_id: `${selectedResult.video_id}_${i.toString().padStart(3, '0')}`,
-                video_id: selectedResult.video_id,
-                keyframe_idx: i,
-                keyframe_name: frameFileName,
-                jpg_path: framePath,
-                pts_time: Math.max(0, estimatedTime),
-                frame_idx: Math.max(0, estimatedFrameIdx),
-                fps: selectedResult.fps || 25,
-                objects: i === currentFrameNum ? selectedResult.objects : [],
-                is_center: i === currentFrameNum
-            });
+        if (carouselTitle) {
+            carouselTitle.textContent = `🏛️ Chi tiết Công trình & Phân tích AI - ${selectedResult.video_id}`;
         }
+        const cleanPath = selectedResult.jpg_path.replace(/^\//, '');
+        const imageUrl = `${API_BASE_URL}/api/v1/images/keyframes/${cleanPath}`;
 
-        centerFrameIndex = currentFrames.findIndex(f => f.is_center);
-        currentFrameIndex = centerFrameIndex;
+        currentFrameImg.src = imageUrl;
+        currentFrameImg.onerror = function() {
+            this.style.opacity = '0.5';
+            this.alt = 'Ảnh không tải được';
+        };
+        currentFrameImg.onload = function() {
+            this.style.opacity = '1';
+        };
 
-        // Update modal title
-        carouselTitle.textContent = `Khung hình lân cận - ${selectedResult.video_id} (${startFrame}-${endFrame})`;
+        if (framePosition) framePosition.textContent = `Bộ Sưu Tập / Dự Án: ${selectedResult.video_id || 'N/A'}`;
+        if (frameTime) frameTime.textContent = `Độ Phù Hợp (AI Score): ${(selectedResult.similarity_score * 100).toFixed(1)}%`;
+        if (frameId) frameId.textContent = `Mã ảnh (ID): ${selectedResult.original_id || 'N/A'}`;
 
-        // Render carousel
-        renderCarousel();
+        const objectsStr = (selectedResult.objects && selectedResult.objects.length > 0) 
+            ? selectedResult.objects.join(", ") 
+            : "Không phát hiện vật thể nội/ngoại thất nổi bật";
+        if (frameIdx) frameIdx.textContent = `Vật thể YOLOv8 phát hiện: ${objectsStr}`;
 
-        // Show modal
+        if (prevFrame) prevFrame.style.display = 'none';
+        if (nextFrame) nextFrame.style.display = 'none';
+
         carouselModal.style.display = 'flex';
-
-        console.log('✅ Carousel opened successfully with', currentFrames.length, 'frames');
-
     } catch (error) {
-        console.error('❌ Error opening carousel:', error);
-        showError(`Lỗi tải khung hình: ${error.message}`);
+        console.error('❌ Error in openCarouselModal:', error);
+        showError(`Lỗi tải ảnh chi tiết: ${error.message}`);
     }
 }
 
 function closeCarouselModal() {
-    console.log('🚪 Closing carousel');
+    console.log('🚪 Closing detail modal');
     carouselModal.style.display = 'none';
-    currentFrames = [];
-    currentFrameIndex = 0;
-    centerFrameIndex = 0;
 }
 
 function showPreviousFrame() {
-    if (currentFrameIndex > 0) {
-        currentFrameIndex--;
-        updateCurrentFrame();
-    }
+    // No-op for individual architectural photos
 }
 
 function showNextFrame() {
-    if (currentFrameIndex < currentFrames.length - 1) {
-        currentFrameIndex++;
-        updateCurrentFrame();
-    }
-}
-
-function renderCarousel() {
-    console.log('🎨 Rendering carousel with', currentFrames.length, 'frames');
-
-    // Render thumbnails
-    thumbnailContainer.innerHTML = '';
-    currentFrames.forEach((frame, index) => {
-        const thumbnail = createThumbnailItem(frame, index);
-        thumbnailContainer.appendChild(thumbnail);
-    });
-
-    // Update current frame
-    updateCurrentFrame();
-}
-
-function createThumbnailItem(frame, index) {
-    const thumbnail = document.createElement('div');
-    thumbnail.className = 'thumbnail-item';
-
-    if (index === currentFrameIndex) {
-        thumbnail.classList.add('active');
-    }
-
-    if (frame.is_center) {
-        thumbnail.classList.add('center');
-    }
-
-    const cleanPath = frame.jpg_path.replace(/^\//, '');
-    const imageUrl = `${API_BASE_URL}/api/v1/videos/keyframes/${cleanPath}`;
-
-    thumbnail.innerHTML = `
-        <img src="${imageUrl}"
-             alt="Frame ${frame.keyframe_idx}"
-             onerror="this.style.opacity='0.3'; this.alt='❌';"
-        />
-    `;
-
-    thumbnail.addEventListener('click', () => {
-        currentFrameIndex = index;
-        updateCurrentFrame();
-    });
-
-    return thumbnail;
-}
-
-function updateCurrentFrame() {
-    if (currentFrames.length === 0) return;
-
-    const frame = currentFrames[currentFrameIndex];
-    console.log('🖼️ Updating to frame:', frame.keyframe_idx);
-
-    // Update main image
-    const cleanPath = frame.jpg_path.replace(/^\//, '');
-    const imageUrl = `${API_BASE_URL}/api/v1/videos/keyframes/${cleanPath}`;
-    currentFrameImg.src = imageUrl;
-    currentFrameImg.onerror = function() {
-        this.style.opacity = '0.5';
-        this.alt = 'Ảnh không tồn tại';
-    };
-    currentFrameImg.onload = function() {
-        this.style.opacity = '1';
-    };
-
-    // Update frame info
-    framePosition.textContent = `${currentFrameIndex + 1} / ${currentFrames.length}`;
-    frameTime.textContent = formatTime(frame.pts_time);
-    frameId.textContent = `${frame.video_id}_${frame.keyframe_idx}`;
-    frameIdx.textContent = `Frame: ${frame.frame_idx}`;
-
-    // Update navigation buttons
-    prevFrame.disabled = currentFrameIndex === 0;
-    nextFrame.disabled = currentFrameIndex === currentFrames.length - 1;
-
-    // Update thumbnail selection
-    document.querySelectorAll('.thumbnail-item').forEach((thumb, index) => {
-        thumb.classList.toggle('active', index === currentFrameIndex);
-    });
-
-    // Scroll thumbnail into view
-    const activeThumbnail = document.querySelector('.thumbnail-item.active');
-    if (activeThumbnail) {
-        activeThumbnail.scrollIntoView({
-            behavior: 'smooth',
-            block: 'nearest',
-            inline: 'center'
-        });
-    }
-}
-
-// Format time helper (already exists but ensuring it's available)
-function formatTime(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    if (hours > 0) {
-        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    } else {
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
-    }
+    // No-op for individual architectural photos
 }
 
 // ==========================================================================
-// INGEST PIPELINE FUNCTIONS
+// INGEST PIPELINE FUNCTIONS FOR ARCHITECTURAL PHOTOS
 // ==========================================================================
 
-// Handle Ingest submit
+// Handle Ingest submit (FormData batch upload)
 async function handleStartIngestion() {
-    const url = ingestUrlInput.value.trim();
-    if (!url) {
-        alert("Vui lòng nhập đường dẫn YouTube Video hoặc Channel/Playlist.");
+    if (!ingestFilesInput || !ingestFilesInput.files || ingestFilesInput.files.length === 0) {
+        alert("Vui lòng chọn ít nhất 1 tệp ảnh kiến trúc từ máy tính của bạn.");
         return;
     }
 
-    const videoId = ingestVideoIdInput.value.trim() || null;
-    const method = ingestMethodSelect.value;
-    const timeInterval = parseFloat(ingestIntervalInput.value) || 2.0;
-    const sbdThreshold = parseFloat(ingestSbdThresholdInput.value) || 0.3;
+    const batchName = ingestBatchNameInput ? ingestBatchNameInput.value.trim() : "Bộ sưu tập Kiến trúc";
+    const files = ingestFilesInput.files;
+
+    const formData = new FormData();
+    if (batchName) {
+        formData.append("batch_name", batchName);
+    }
+    for (let i = 0; i < files.length; i++) {
+        formData.append("files", files[i]);
+    }
 
     startIngestBtn.disabled = true;
-    startIngestBtn.textContent = "⌛ Đang xử lý...";
+    startIngestBtn.textContent = "⌛ Đang tải ảnh & khởi chạy Pháp Sư AI...";
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/videos/ingest`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/ingest/upload`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                url: url,
-                extraction_method: method,
-                time_interval: timeInterval,
-                sbd_threshold: sbdThreshold,
-                video_id: videoId
-            })
+            body: formData
         });
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(err || "Lỗi yêu cầu nạp video");
+            throw new Error(err || "Lỗi yêu cầu tải lên kho ảnh");
         }
 
         const data = await response.json();
-        console.log("Injest response:", data);
+        console.log("Ingest response:", data);
         alert(data.message);
-        
+
         // Reset inputs
-        ingestUrlInput.value = "";
-        ingestVideoIdInput.value = "";
-        
+        if (ingestBatchNameInput) ingestBatchNameInput.value = "";
+        ingestFilesInput.value = "";
+        if (ingestFilesCountHint) {
+            ingestFilesCountHint.innerHTML = `💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Cmd/Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.`;
+        }
+
         // Refresh tasks table
         if (ingestPollInterval === null && ingestSocket === null) {
             initIngestMonitoring();
         }
-
     } catch (error) {
         console.error("Start Ingest error:", error);
         alert(`Lỗi: ${error.message}`);
     } finally {
         startIngestBtn.disabled = false;
-        startIngestBtn.textContent = "⚡ Bắt đầu nạp";
+        startIngestBtn.textContent = "⚡ Bắt đầu Phân tích AI & Lưu Trữ";
     }
 }
 
 // Ingest Monitoring Initialization
 function initIngestMonitoring() {
-    // Try WebSocket first
     connectWebSocket();
 }
 
@@ -969,8 +831,7 @@ function connectWebSocket() {
         ingestPollInterval = null;
     }
 
-    // Convert http endpoint to ws
-    const wsUrl = API_BASE_URL.replace(/^http/, 'ws') + '/api/v1/videos/ingest/ws';
+    const wsUrl = API_BASE_URL.replace(/^http/, 'ws') + '/api/v1/images/ingest/ws';
     console.log("Connecting to WebSocket:", wsUrl);
 
     try {
@@ -978,8 +839,8 @@ function connectWebSocket() {
 
         ingestSocket.onopen = () => {
             console.log("WebSocket connection established");
-            wsStatusIcon.className = "status-dot online";
-            wsStatusText.textContent = "Kết nối WebSocket thành công (Real-time)";
+            if (wsStatusIcon) wsStatusIcon.className = "status-dot online";
+            if (wsStatusText) wsStatusText.textContent = "Kết nối WebSocket thành công (Real-time)";
         };
 
         ingestSocket.onmessage = (event) => {
@@ -1000,11 +861,10 @@ function connectWebSocket() {
         ingestSocket.onclose = () => {
             console.log("WebSocket connection closed. Switching to polling fallback...");
             ingestSocket = null;
-            wsStatusIcon.className = "status-dot offline";
-            wsStatusText.textContent = "Mất kết nối WebSocket (Đang Polling)";
+            if (wsStatusIcon) wsStatusIcon.className = "status-dot offline";
+            if (wsStatusText) wsStatusText.textContent = "Mất kết nối WebSocket (Đang Polling)";
             startPolling();
         };
-
     } catch (err) {
         console.error("Failed to create WebSocket:", err);
         startPolling();
@@ -1016,18 +876,14 @@ function startPolling() {
     if (ingestPollInterval) {
         clearInterval(ingestPollInterval);
     }
-    
-    // Initial fetch
     fetchTasksViaApi();
-
-    // Poll every 3 seconds
     ingestPollInterval = setInterval(fetchTasksViaApi, 3000);
 }
 
 // Fetch tasks via standard REST API
 async function fetchTasksViaApi() {
     try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/videos/ingest/tasks`);
+        const response = await fetch(`${API_BASE_URL}/api/v1/images/ingest/tasks`);
         if (response.ok) {
             const tasks = await response.json();
             renderIngestTaskList(tasks);
@@ -1044,39 +900,38 @@ function renderIngestTaskList(tasks) {
     if (!tasks || tasks.length === 0) {
         ingestTaskListBody.innerHTML = `
             <tr>
-                <td colspan="6" class="table-empty">Chưa có tác vụ nạp video nào được khởi chạy.</td>
+                <td colspan="6" class="table-empty">Chưa có tác vụ nạp kho ảnh nào được khởi chạy.</td>
             </tr>
         `;
         return;
     }
 
-    // Sort tasks: put pending/processing first, then completed/failed
+    // Sort tasks: processing first, then others
     tasks.sort((a, b) => {
-        const aActive = ["PENDING", "DOWNLOADING", "EXTRACTING", "INDEXING", "PROCESSING"].includes(a.status);
-        const bActive = ["PENDING", "DOWNLOADING", "EXTRACTING", "INDEXING", "PROCESSING"].includes(b.status);
+        const aActive = ["PENDING", "PROCESSING"].includes(a.status);
+        const bActive = ["PENDING", "PROCESSING"].includes(b.status);
         if (aActive && !bActive) return -1;
         if (!aActive && bActive) return 1;
-        return b.id.localeCompare(a.id);
+        return (b.id || "").localeCompare(a.id || "");
     });
 
     let html = "";
     tasks.forEach(task => {
-        const isChannel = task.type === "channel";
-        const taskName = isChannel ? task.channel_name : task.id;
-        const typeLabel = isChannel ? "📁 Channel" : "🎥 Video";
-        
+        const isBatch = task.type === "image_batch";
+        const taskName = isBatch ? (task.batch_name || task.id) : (task.channel_name || task.id || "N/A");
+        const typeLabel = isBatch ? "🖼️ Album Ảnh" : "🎥 Video/Channel";
+
         // Progress display
         let progressHtml = "";
-        if (isChannel) {
-            const completed = task.completed_videos || 0;
-            const failed = task.failed_videos || 0;
-            const total = task.total_videos || 1;
-            const pct = Math.round(((completed + failed) / total) * 100);
+        if (isBatch) {
+            const completed = task.completed_images || 0;
+            const total = task.total_images || 1;
+            const pct = Math.round((completed / total) * 100);
             progressHtml = `
                 <div class="progress-bar-container">
-                    <div class="progress-bar-fill" style="width: ${pct}%"></div>
+                    <div class="progress-bar-fill" style="width: ${task.progress || pct}%"></div>
                 </div>
-                <span class="progress-percent">${completed}/${total} (${pct}%)</span>
+                <span class="progress-percent">${completed}/${total} (${task.progress || pct}%)</span>
             `;
         } else {
             const pct = task.progress || 0;
@@ -1088,15 +943,10 @@ function renderIngestTaskList(tasks) {
             `;
         }
 
-        // Status badge
-        const status = task.status.toLowerCase();
+        const status = (task.status || "UNKNOWN").toLowerCase();
         const statusBadge = `<span class="status-badge ${status}">${task.status}</span>`;
-
-        // Message
-        const message = isChannel ? `Đã hoàn tất ${task.completed_videos} video, lỗi/hủy ${task.failed_videos} video.` : (task.message || "");
-
-        // Cancel action button
-        const canCancel = ["PENDING", "DOWNLOADING", "EXTRACTING", "INDEXING", "PROCESSING"].includes(task.status);
+        const message = task.message || "";
+        const canCancel = ["PENDING", "PROCESSING"].includes(task.status);
         const actionButton = canCancel 
             ? `<button onclick="handleCancelTask('${task.id}', '${task.type}')" class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: #e74c3c; border-color: #e74c3c;">🚫 Hủy</button>` 
             : `<span style="color: #a4b0be; font-size: 11px;">-</span>`;
@@ -1105,9 +955,7 @@ function renderIngestTaskList(tasks) {
             <tr>
                 <td style="font-weight: 500;">
                     <div title="${task.id}">${taskName}</div>
-                    <div style="font-size: 10px; color: #747d8c; margin-top: 2px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                        <a href="${task.video_url || task.channel_url || '#'}" target="_blank">${task.video_url || task.channel_url || 'N/A'}</a>
-                    </div>
+                    <div style="font-size: 10px; color: #747d8c; margin-top: 2px;">ID: ${task.id}</div>
                 </td>
                 <td>${typeLabel}</td>
                 <td>${statusBadge}</td>
@@ -1123,12 +971,15 @@ function renderIngestTaskList(tasks) {
 
 // Handle task cancellation
 async function handleCancelTask(taskId, taskType) {
-    if (!confirm(`Bạn có chắc chắn muốn hủy tác vụ ${taskType === 'channel' ? 'channel' : 'video'} ${taskId}?`)) {
+    if (!confirm(`Bạn có chắc chắn muốn hủy tác vụ ${taskId}?`)) {
         return;
     }
 
     try {
-        const url = `${API_BASE_URL}/api/v1/videos/ingest/cancel/${taskType}/${taskId}`;
+        let url = `${API_BASE_URL}/api/v1/images/ingest/cancel/${taskId}`;
+        if (taskType !== "image_batch") {
+            url = `${API_BASE_URL}/api/v1/videos/ingest/cancel/${taskType}/${taskId}`;
+        }
         const response = await fetch(url, { method: 'POST' });
         if (response.ok) {
             console.log(`Cancellation request sent for ${taskId}`);

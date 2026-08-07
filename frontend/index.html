@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KIS Video Retrieval & Ingestion System</title>
+    <title>KIS Architect - Hệ thống Truy xuất Kho tư liệu Kiến trúc Việt Nam</title>
     <link rel="stylesheet" href="styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -11,13 +11,13 @@
     <div class="main-container">
         <header>
             <div class="header-logo">
-                <span class="logo-icon">🚀</span>
-                <h1>Keyframe Information System (KIS)</h1>
+                <span class="logo-icon">🏛️</span>
+                <h1>KIS Architect - Kho Tư Liệu Kiến Trúc Việt Nam</h1>
             </div>
             <!-- Tab Navigation Header -->
             <div class="tab-navigation">
-                <button type="button" id="searchTabBtn" class="btn btn-tab active">🔍 Tìm kiếm Keyframe</button>
-                <button type="button" id="ingestTabBtn" class="btn btn-tab">📥 Nạp Video Tự động</button>
+                <button type="button" id="searchTabBtn" class="btn btn-tab active">🔍 Tìm Kiếm Không Gian</button>
+                <button type="button" id="ingestTabBtn" class="btn btn-tab">📥 Nạp Kho Ảnh Kiến Trúc</button>
             </div>
         </header>
 
@@ -29,17 +29,17 @@
                     <div class="search-section">
                         <!-- Search Mode Selection -->
                         <div class="mode-selector">
-                            <button type="button" id="textModeBtn" class="btn btn-mode active">🔤 Tìm bằng văn bản</button>
+                            <button type="button" id="textModeBtn" class="btn btn-mode active">🔤 Tìm bằng mô tả</button>
                             <button type="button" id="imageModeBtn" class="btn btn-mode">🖼️ Tìm bằng ảnh</button>
                         </div>
 
                         <!-- Text Search Section -->
                         <div id="textInputSection" class="input-section">
                             <div class="input-group">
-                                <label for="queryInput">Nhập câu query (mỗi dòng một câu):</label>
+                                <label for="queryInput">Nhập câu mô tả không gian kiến trúc (Tiếng Anh):</label>
                                 <textarea
                                     id="queryInput"
-                                    placeholder="Ví dụ:&#10;a person walking&#10;a person with red hat is walking&#10;car driving"
+                                    placeholder="Ví dụ:&#10;Modern tropical house facade with wooden louvers and plants&#10;Traditional Vietnamese temple architecture under sunlight&#10;Minimalist bright dining area with concrete walls"
                                     rows="4"
                                 ></textarea>
                             </div>
@@ -48,15 +48,15 @@
                         <!-- Image Search Section -->
                         <div id="imageInputSection" class="input-section" style="display: none;">
                             <div class="input-group">
-                                <label for="imageInput">Chọn ảnh để tìm kiếm:</label>
+                                <label for="imageInput">Chọn ảnh kiến trúc mẫu để tìm kiếm:</label>
                                 <input type="file" id="imageInput" accept="image/*" class="file-input">
                                 <div class="upload-hint">
-                                    💡 <strong>Mẹo:</strong> Bạn có thể dán ảnh trực tiếp bằng <kbd>Ctrl+V</kbd>
+                                    💡 <strong>Mẹo:</strong> Bạn có thể dán ảnh trực tiếp bằng <kbd>Ctrl+V / Cmd+V</kbd>
                                 </div>
                                 <div id="imagePreview" class="image-preview">
                                     <div class="upload-placeholder">
-                                        🖼️ Chưa có ảnh được chọn<br>
-                                        <small>Chọn file hoặc dán ảnh (Ctrl+V)</small>
+                                        🖼️ Chưa có ảnh mẫu được chọn<br>
+                                        <small>Chọn file hoặc dán ảnh từ bộ nhớ tạm</small>
                                     </div>
                                 </div>
                             </div>
@@ -64,17 +64,17 @@
 
                         <!-- Object Filter Section -->
                         <div class="input-group">
-                            <label for="objectInput">Lọc theo object (tùy chọn, mỗi dòng một object):</label>
+                            <label for="objectInput">Lọc theo vật thể nội thất / ngoại thất (YOLOv8 Filter):</label>
                             <textarea
                                 id="objectInput"
-                                placeholder="Ví dụ:&#10;Human face&#10;Person&#10;Car"
+                                placeholder="Ví dụ (mỗi từ một dòng):&#10;Chair&#10;Dining table&#10;Potted plant&#10;Person"
                                 rows="3"
                             ></textarea>
                         </div>
 
                         <!-- Search Buttons -->
                         <div class="button-group">
-                            <button type="button" id="searchBtn" class="btn btn-primary">🔍 Tìm kiếm</button>
+                            <button type="button" id="searchBtn" class="btn btn-primary">🔍 Phát Lệnh Tìm Kiếm</button>
                             <button type="button" id="searchMoreBtn" class="btn btn-secondary" disabled>➕ Tìm tiếp</button>
                         </div>
                     </div>
@@ -84,7 +84,7 @@
                 <div class="main-content">
                     <div class="results-section" id="resultsSection">
                         <div class="results-header">
-                            <h2>Kết quả tìm kiếm</h2>
+                            <h2>Kết quả tư liệu Kiến Trúc</h2>
                             <div class="pagination-info">
                                 <span id="paginationInfo">Hiển thị 1-20 của 0 kết quả</span>
                             </div>
@@ -118,40 +118,23 @@
                 <!-- Left Sidebar - Ingestion Form -->
                 <div class="sidebar">
                     <div class="search-section">
-                        <h3>📥 Cấu hình Nạp Video</h3>
+                        <h3>📥 Cấu hình Nạp Kho Ảnh</h3>
                         
                         <div class="input-group">
-                            <label for="ingestUrlInput">Đường dẫn Video / Playlist YouTube:</label>
-                            <input type="text" id="ingestUrlInput" placeholder="https://www.youtube.com/watch?v=..." class="text-input">
+                            <label for="ingestBatchNameInput">Tên Bộ Sưu Tập / Tên Dự Án:</label>
+                            <input type="text" id="ingestBatchNameInput" placeholder="Ví dụ: Nhà Phố Nhiệt Đới - ArchDaily 2024" class="text-input">
                         </div>
 
                         <div class="input-group">
-                            <label for="ingestVideoIdInput">Video ID tùy chọn (Lần lượt cho single video):</label>
-                            <input type="text" id="ingestVideoIdInput" placeholder="Ví dụ: L21_V099" class="text-input">
-                        </div>
-
-                        <div class="input-group">
-                            <label for="ingestMethodSelect">Phương pháp trích xuất keyframe:</label>
-                            <select id="ingestMethodSelect" class="select-input">
-                                <option value="SBD">Shot Boundary Detection (SBD)</option>
-                                <option value="TIME">Theo khoảng thời gian (TIME)</option>
-                            </select>
-                        </div>
-
-                        <!-- TIME configuration (only visible when TIME is selected) -->
-                        <div id="ingestTimeConfig" class="input-group" style="display: none;">
-                            <label for="ingestIntervalInput">Khoảng thời gian chụp (giây):</label>
-                            <input type="number" id="ingestIntervalInput" value="2.0" step="0.5" min="0.5" class="number-input">
-                        </div>
-
-                        <!-- SBD configuration (only visible when SBD is selected) -->
-                        <div id="ingestSbdConfig" class="input-group">
-                            <label for="ingestSbdThresholdInput">Ngưỡng phát hiện chuyển phân cảnh (Threshold):</label>
-                            <input type="number" id="ingestSbdThresholdInput" value="0.3" step="0.05" min="0.05" max="1.0" class="number-input">
+                            <label for="ingestFilesInput">Chọn Tệp Ảnh Kiến Trúc (Chọn Hàng Loạt):</label>
+                            <input type="file" id="ingestFilesInput" accept="image/*" multiple class="file-input">
+                            <div class="upload-hint" id="ingestFilesCountHint" style="margin-top: 8px; color: var(--primary-light, #38bdf8);">
+                                💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Cmd/Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.
+                            </div>
                         </div>
 
                         <div class="button-group">
-                            <button type="button" id="startIngestBtn" class="btn btn-primary">⚡ Bắt đầu nạp</button>
+                            <button type="button" id="startIngestBtn" class="btn btn-primary">⚡ Bắt đầu Phân tích AI & Lưu Trữ</button>
                         </div>
                     </div>
                 </div>
@@ -160,7 +143,7 @@
                 <div class="main-content">
                     <div class="results-section">
                         <div class="results-header">
-                            <h2>📊 Giám sát Tiến trình Nạp Video</h2>
+                            <h2>📊 Giám sát Tiến trình Nạp & Phân tích AI</h2>
                             <div class="connection-status">
                                 <span id="wsStatusIcon" class="status-dot offline"></span>
                                 <span id="wsStatusText">Mất kết nối WebSocket (Đang Polling)</span>
@@ -172,17 +155,17 @@
                             <table class="tasks-table">
                                <thead>
                                    <tr>
-                                       <th>ID / Tên Tác vụ</th>
+                                       <th>ID / Tên Bộ Sưu Tập</th>
                                        <th>Loại</th>
                                        <th>Trạng thái</th>
                                        <th>Tiến độ</th>
-                                       <th>Thông điệp</th>
+                                       <th>Thông điệp của AI</th>
                                        <th>Hành động</th>
                                    </tr>
                                </thead>
                                <tbody id="ingestTaskListBody">
                                    <tr>
-                                       <td colspan="6" class="table-empty">Chưa có tác vụ nạp video nào được khởi chạy.</td>
+                                       <td colspan="6" class="table-empty">Chưa có tác vụ nạp kho ảnh nào được khởi chạy.</td>
                                    </tr>
                                </tbody>
                             </table>
@@ -195,7 +178,7 @@
         <!-- Loading Spinner -->
         <div id="loadingSpinner" class="loading-spinner" style="display: none;">
             <div class="spinner"></div>
-            <p>Đang tìm kiếm...</p>
+            <p>Pháp sư AI đang dò ngự nghĩa không gian...</p>
         </div>
 
         <!-- Error Message -->
@@ -203,39 +186,28 @@
             <p id="errorText"></p>
         </div>
 
-        <!-- Frame Carousel Modal -->
+        <!-- Detail Image Modal -->
         <div id="carouselModal" class="carousel-modal" style="display: none;">
-            <div class="carousel-content">
+            <div class="carousel-content" style="max-width: 850px;">
                 <div class="carousel-header">
-                    <h3 id="carouselTitle">Khung hình lân cận</h3>
+                    <h3 id="carouselTitle">🏛️ Chi tiết Công trình & Phân tích AI</h3>
                     <button type="button" id="closeCarousel" class="close-btn">&times;</button>
                 </div>
 
-                <div class="carousel-body">
-                    <div class="carousel-container">
-                        <button type="button" id="prevFrame" class="nav-btn nav-prev">&lt;</button>
-
-                        <div class="frame-display">
-                            <img id="currentFrameImg" src="" alt="Current frame" />
-                            <div class="frame-info">
-                                <div class="frame-details">
-                                    <span id="framePosition">1 / 50</span>
-                                    <span id="frameTime">00:18:21</span>
+                <div class="carousel-body" style="padding: 24px;">
+                    <div class="carousel-container" style="justify-content: center;">
+                        <div class="frame-display" style="width: 100%; max-width: 780px;">
+                            <img id="currentFrameImg" src="" alt="Current architectural photo" style="max-height: 580px; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);" />
+                            <div class="frame-info" style="margin-top: 16px; padding: 12px 16px; background: rgba(30, 41, 59, 0.95); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
+                                <div class="frame-details" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <span id="framePosition" style="font-weight: 600; color: #38bdf8;">Album: Bộ sưu tập 1</span>
+                                    <span id="frameTime" style="color: #4ade80;">AI Confidence: 94%</span>
                                 </div>
-                                <div class="frame-metadata">
-                                    <span id="frameId">L28_V015_427</span>
-                                    <span id="frameIdx">Frame: 27533</span>
+                                <div class="frame-metadata" style="display: flex; justify-content: space-between; font-size: 0.9em; color: #94a3b8;">
+                                    <span id="frameId">ID: ARCH_001</span>
+                                    <span id="frameIdx">Objects detected: Chair, Table</span>
                                 </div>
                             </div>
-                        </div>
-
-                        <button type="button" id="nextFrame" class="nav-btn nav-next">&gt;</button>
-                    </div>
-
-                    <!-- Thumbnail strip -->
-                    <div class="thumbnail-strip">
-                        <div id="thumbnailContainer" class="thumbnail-container">
-                            <!-- Thumbnails will be added dynamically -->
                         </div>
                     </div>
                 </div>
@@ -243,6 +215,6 @@
         </div>
     </div>
 
-    <script src="script.js?v=3"></script>
+    <script src="script.js?v=4"></script>
 </body>
 </html>
