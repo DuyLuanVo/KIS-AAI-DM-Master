@@ -1,5 +1,7 @@
 // Configuration
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = window.location.hostname 
+    ? `${window.location.protocol}//${window.location.hostname}:8000` 
+    : 'http://localhost:8000';
 const GRID_SIZE = 20; // 5x4 grid
 const ITEMS_PER_PAGE = GRID_SIZE;
 
@@ -293,12 +295,12 @@ function getQueriesFromInput() {
         .filter(line => line.length > 0);
 }
 
-// Get objects from textarea input
+// Get objects from textarea input (supports newline, comma, semicolon)
 function getObjectsFromInput() {
     const input = objectInput.value.trim();
     if (!input) return [];
 
-    return input.split('\n')
+    return input.split(/[\n,;]+/)
         .map(line => line.trim())
         .filter(line => line.length > 0);
 }
@@ -509,6 +511,56 @@ function displayResults() {
     }
 }
 
+// Helper to extract a friendly architectural landmark title
+function getCleanImageTitle(result) {
+    if (result.jpg_path) {
+        const filename = result.jpg_path.split('/').pop();
+        const stem = filename.substring(0, filename.lastIndexOf('.')) || filename;
+        if (stem && !/^\d+$/.test(stem)) {
+            return decodeURIComponent(stem).replace(/_/g, ' ');
+        }
+    }
+    if (result.original_id && !result.original_id.startsWith('video_') && !/^\d+$/.test(result.original_id)) {
+        return decodeURIComponent(result.original_id).replace(/_/g, ' ');
+    }
+    if (result.video_id && !result.video_id.startsWith('chan_') && !result.video_id.startsWith('L21_') && !result.video_id.startsWith('Album_ARCH_')) {
+        return result.video_id;
+    }
+    return `Ảnh tư liệu #${result.rank}`;
+}
+
+// Helper to extract clean original object labels from YOLOv8 results
+function getFormattedObjectLabels(objects, maxCount = null) {
+    if (!objects || !Array.isArray(objects) || objects.length === 0) {
+        return [];
+    }
+
+    const uniqueLabels = [];
+    const seen = new Set();
+
+    for (const item of objects) {
+        let rawLabel = '';
+        if (typeof item === 'string') {
+            rawLabel = item.trim();
+        } else if (item && typeof item === 'object') {
+            rawLabel = (item.label || item.name || item.class || '').trim();
+        }
+
+        if (rawLabel) {
+            const lower = rawLabel.toLowerCase();
+            if (!seen.has(lower)) {
+                seen.add(lower);
+                uniqueLabels.push(rawLabel);
+            }
+        }
+    }
+
+    if (maxCount && maxCount > 0) {
+        return uniqueLabels.slice(0, maxCount);
+    }
+    return uniqueLabels;
+}
+
 // Create a grid item for a result
 function createGridItem(result) {
     const gridItem = document.createElement('div');
@@ -521,7 +573,9 @@ function createGridItem(result) {
         imageUrl = `${API_BASE_URL}/api/v1/images/keyframes/${cleanPath}`;
     }
 
-    const objText = (result.objects && result.objects.length > 0) ? `✨ ${result.objects.slice(0, 3).join(', ')}` : `🏛️ Kiến trúc`;
+    const title = getCleanImageTitle(result);
+    const detectedLabels = getFormattedObjectLabels(result.objects, 3);
+    const objText = detectedLabels.length > 0 ? `✨ ${detectedLabels.join(', ')}` : `🏛️ Toàn cảnh`;
 
     gridItem.innerHTML = `
         <div class="grid-item-image" style="background-image: url('${imageUrl}')"
@@ -529,10 +583,10 @@ function createGridItem(result) {
             <div class="rank-badge">#${result.rank}</div>
         </div>
         <div class="grid-item-info">
-            <div class="grid-item-title" title="Bộ sưu tập: ${result.video_id}">📁 ${result.video_id}</div>
+            <div class="grid-item-title" title="${title}">🏛️ ${title}</div>
             <div class="grid-item-score">🎯 AI Score: ${(result.similarity_score * 100).toFixed(1)}%</div>
             <div class="grid-item-time" style="color: #38bdf8; font-size: 11px; margin-top: 4px;">${objText}</div>
-            <div class="grid-item-frame" style="color: #64748b; font-size: 10px;">ID: #${result.keyframe_idx}</div>
+            <div class="grid-item-frame" style="color: #64748b; font-size: 10px;">Thứ hạng: #${result.rank}</div>
         </div>
     `;
 
@@ -579,16 +633,12 @@ function updateQueryStats(data) {
     if (queryStats) {
         const statsHtml = `
             <div class="stats-item">
-                <span class="stats-label">Tổng kết quả:</span>
+                <span class="stats-label">Tổng số ảnh:</span>
                 <span class="stats-value">${data.total_results}</span>
             </div>
             <div class="stats-item">
                 <span class="stats-label">Thời gian:</span>
                 <span class="stats-value">${Math.round(data.query_time_ms)}ms</span>
-            </div>
-            <div class="stats-item">
-                <span class="stats-label">Video tìm thấy:</span>
-                <span class="stats-value">${data.grouped_by_video.length}</span>
             </div>
         `;
         queryStats.innerHTML = statsHtml;
@@ -663,6 +713,24 @@ function init() {
         }
     });
 
+    // Suggestion chips for architectural elements
+    document.querySelectorAll('.sugg-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const filterVal = chip.getAttribute('data-filter');
+            const currentObjs = getObjectsFromInput();
+            const idx = currentObjs.findIndex(o => o.toLowerCase() === filterVal.toLowerCase());
+            
+            if (idx >= 0) {
+                currentObjs.splice(idx, 1);
+                chip.classList.remove('active');
+            } else {
+                currentObjs.push(filterVal);
+                chip.classList.add('active');
+            }
+            objectInput.value = currentObjs.join('\n');
+        });
+    });
+
     // Tab switching event listeners
     searchTabBtn.addEventListener('click', () => {
         searchTabBtn.classList.add('active');
@@ -676,6 +744,10 @@ function init() {
         searchTabBtn.classList.remove('active');
         ingestTabContent.classList.add('active');
         searchTabContent.classList.remove('active');
+        // Tự động kiểm tra và kết nối lại WebSocket nếu chưa kết nối
+        if (!ingestSocket || ingestSocket.readyState !== WebSocket.OPEN) {
+            connectWebSocket();
+        }
     });
 
     // Ingest file select count hint updater
@@ -704,13 +776,13 @@ function init() {
     console.log('✅ App initialized successfully');
 }
 
-// Carousel Functions
 // Detail Modal Functions for Architectural Photography
 function openCarouselModal(selectedResult) {
-    console.log('🏛️ Opening photo detail modal for:', selectedResult);
+    console.log('Opening photo detail modal for:', selectedResult);
     try {
+        const cleanTitle = selectedResult.monument_name || getCleanImageTitle(selectedResult);
         if (carouselTitle) {
-            carouselTitle.textContent = `🏛️ Chi tiết Công trình & Phân tích AI - ${selectedResult.video_id}`;
+            carouselTitle.textContent = `Chi tiết Công trình & Phân tích AI - ${cleanTitle}`;
         }
         const cleanPath = selectedResult.jpg_path.replace(/^\//, '');
         const imageUrl = `${API_BASE_URL}/api/v1/images/keyframes/${cleanPath}`;
@@ -724,21 +796,76 @@ function openCarouselModal(selectedResult) {
             this.style.opacity = '1';
         };
 
-        if (framePosition) framePosition.textContent = `Bộ Sưu Tập / Dự Án: ${selectedResult.video_id || 'N/A'}`;
-        if (frameTime) frameTime.textContent = `Độ Phù Hợp (AI Score): ${(selectedResult.similarity_score * 100).toFixed(1)}%`;
-        if (frameId) frameId.textContent = `Mã ảnh (ID): ${selectedResult.original_id || 'N/A'}`;
+        const fname = selectedResult.jpg_path ? selectedResult.jpg_path.split('/').pop() : selectedResult.original_id;
+        if (framePosition) framePosition.textContent = cleanTitle;
+        if (frameTime) frameTime.textContent = `Độ khớp: ${(selectedResult.similarity_score * 100).toFixed(1)}%`;
+        if (frameId) frameId.textContent = decodeURIComponent(fname || 'N/A');
 
-        const objectsStr = (selectedResult.objects && selectedResult.objects.length > 0) 
-            ? selectedResult.objects.join(", ") 
-            : "Không phát hiện vật thể nội/ngoại thất nổi bật";
-        if (frameIdx) frameIdx.textContent = `Vật thể YOLOv8 phát hiện: ${objectsStr}`;
+        // Card 2: Mô tả lịch sử kiến trúc
+        const monumentDescEl = document.getElementById('monumentDesc');
+        if (monumentDescEl) {
+            monumentDescEl.textContent = selectedResult.description || `Tư liệu hình ảnh công trình kiến trúc ${cleanTitle}.`;
+        }
+
+        // Card 3: Thể loại & Phân loại
+        const monumentCatsEl = document.getElementById('monumentCategories');
+        if (monumentCatsEl) {
+            const cats = selectedResult.categories || [];
+            if (cats.length > 0) {
+                monumentCatsEl.innerHTML = cats.map(c => `<span class="category-tag">${c}</span>`).join('');
+            } else {
+                monumentCatsEl.innerHTML = `<span class="category-tag">Kiến trúc Việt Nam</span>`;
+            }
+        }
+
+        // Card 4: Cấu kiện kiến trúc nhận diện (YOLO-World)
+        if (frameIdx) {
+            if (selectedResult.objects && selectedResult.objects.length > 0) {
+                frameIdx.innerHTML = selectedResult.objects.map(obj => {
+                    const name = obj.label || obj.name || obj.display_name;
+                    const conf = obj.confidence ? ` (${(obj.confidence * 100).toFixed(0)}%)` : '';
+                    return `<span class="object-chip">${name}${conf}</span>`;
+                }).join('');
+            } else {
+                frameIdx.innerHTML = `<span class="no-object-text">Toàn cảnh kiến trúc (Không phát hiện cấu kiện phụ)</span>`;
+            }
+        }
+
+        // Card 5: Thông tin tư liệu (Niên đại & Tác giả)
+        const monumentDateEl = document.getElementById('monumentDate');
+        if (monumentDateEl) {
+            monumentDateEl.textContent = selectedResult.date || 'Tư liệu lưu trữ';
+        }
+        const monumentAuthorEl = document.getElementById('monumentAuthor');
+        if (monumentAuthorEl) {
+            monumentAuthorEl.textContent = selectedResult.author || 'Kho Wikimedia Commons';
+        }
+
+        // Action: Open full original image
+        const viewFullBtn = document.getElementById('viewFullImageBtn');
+        if (viewFullBtn) {
+            viewFullBtn.href = selectedResult.source_url || imageUrl;
+        }
+
+        // Action: Search similar landmark/architecture
+        const searchSimilarBtn = document.getElementById('searchSimilarBtn');
+        if (searchSimilarBtn) {
+            searchSimilarBtn.onclick = () => {
+                closeCarouselModal();
+                if (queryInput) {
+                    queryInput.value = cleanTitle;
+                    if (textModeBtn) textModeBtn.click();
+                    handleSearch();
+                }
+            };
+        }
 
         if (prevFrame) prevFrame.style.display = 'none';
         if (nextFrame) nextFrame.style.display = 'none';
 
         carouselModal.style.display = 'flex';
     } catch (error) {
-        console.error('❌ Error in openCarouselModal:', error);
+        console.error('Error in openCarouselModal:', error);
         showError(`Lỗi tải ảnh chi tiết: ${error.message}`);
     }
 }
@@ -816,23 +943,34 @@ async function handleStartIngestion() {
     }
 }
 
+let wsReconnectTimer = null;
+
 // Ingest Monitoring Initialization
 function initIngestMonitoring() {
     connectWebSocket();
 }
 
-// Connect to WebSocket
+// Connect to WebSocket with Auto-Reconnect
 function connectWebSocket() {
-    if (ingestSocket) {
-        ingestSocket.close();
-    }
-    if (ingestPollInterval) {
-        clearInterval(ingestPollInterval);
-        ingestPollInterval = null;
+    // Nếu đang kết nối hoặc đã kết nối thì không tạo mới
+    if (ingestSocket && (ingestSocket.readyState === WebSocket.OPEN || ingestSocket.readyState === WebSocket.CONNECTING)) {
+        return;
     }
 
-    const wsUrl = API_BASE_URL.replace(/^http/, 'ws') + '/api/v1/images/ingest/ws';
+    if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+    }
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname || 'localhost';
+    const wsUrl = `${wsProtocol}//${host}:8000/api/v1/images/ingest/ws`;
+    
     console.log("Connecting to WebSocket:", wsUrl);
+    if (wsStatusText && (!ingestSocket || ingestSocket.readyState === WebSocket.CLOSED)) {
+        wsStatusText.textContent = "Đang kết nối WebSocket...";
+        if (wsStatusIcon) wsStatusIcon.className = "status-dot";
+    }
 
     try {
         ingestSocket = new WebSocket(wsUrl);
@@ -841,6 +979,11 @@ function connectWebSocket() {
             console.log("WebSocket connection established");
             if (wsStatusIcon) wsStatusIcon.className = "status-dot online";
             if (wsStatusText) wsStatusText.textContent = "Kết nối WebSocket thành công (Real-time)";
+            // Dừng Polling dự phòng khi WebSocket đã hoạt động
+            if (ingestPollInterval) {
+                clearInterval(ingestPollInterval);
+                ingestPollInterval = null;
+            }
         };
 
         ingestSocket.onmessage = (event) => {
@@ -855,19 +998,34 @@ function connectWebSocket() {
         };
 
         ingestSocket.onerror = (error) => {
-            console.error("WebSocket error:", error);
+            console.warn("WebSocket warning/error:", error);
         };
 
         ingestSocket.onclose = () => {
-            console.log("WebSocket connection closed. Switching to polling fallback...");
+            console.log("WebSocket connection closed. Switching to polling & retrying in 3s...");
             ingestSocket = null;
             if (wsStatusIcon) wsStatusIcon.className = "status-dot offline";
-            if (wsStatusText) wsStatusText.textContent = "Mất kết nối WebSocket (Đang Polling)";
+            if (wsStatusText) wsStatusText.textContent = "Mất kết nối WebSocket (Đang Polling - Sẽ thử lại...)";
             startPolling();
+
+            // Tự động thử kết nối lại sau 3 giây
+            if (!wsReconnectTimer) {
+                wsReconnectTimer = setTimeout(() => {
+                    wsReconnectTimer = null;
+                    console.log("🔄 Retrying WebSocket connection...");
+                    connectWebSocket();
+                }, 3000);
+            }
         };
     } catch (err) {
         console.error("Failed to create WebSocket:", err);
         startPolling();
+        if (!wsReconnectTimer) {
+            wsReconnectTimer = setTimeout(() => {
+                wsReconnectTimer = null;
+                connectWebSocket();
+            }, 3000);
+        }
     }
 }
 
@@ -919,7 +1077,7 @@ function renderIngestTaskList(tasks) {
     tasks.forEach(task => {
         const isBatch = task.type === "image_batch";
         const taskName = isBatch ? (task.batch_name || task.id) : (task.channel_name || task.id || "N/A");
-        const typeLabel = isBatch ? "🖼️ Album Ảnh" : "🎥 Video/Channel";
+        const typeLabel = isBatch ? "🖼️ Album Kiến Trúc" : "📁 Bộ Sưu Tập";
 
         // Progress display
         let progressHtml = "";

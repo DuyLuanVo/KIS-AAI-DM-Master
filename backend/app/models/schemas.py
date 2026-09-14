@@ -114,6 +114,14 @@ class VideoSearchResult(BaseModel):
     objects: List[Dict[str, Any]] = Field(
         default=[], description="Detected objects"
     )
+    monument_name: Optional[str] = Field(default=None, description="Tên công trình kiến trúc / di tích")
+    description: Optional[str] = Field(default=None, description="Mô tả lịch sử và phong cách kiến trúc")
+    categories: Optional[List[str]] = Field(default=[], description="Danh mục thể loại kiến trúc / Tags")
+    date: Optional[str] = Field(default=None, description="Niên đại hoặc ngày ghi nhận")
+    author: Optional[str] = Field(default=None, description="Tác giả hoặc người đóng góp")
+    source_url: Optional[str] = Field(default=None, description="Đường dẫn tư liệu nguồn")
+    latitude: Optional[float] = Field(default=None, description="Vĩ độ GPS")
+    longitude: Optional[float] = Field(default=None, description="Kinh độ GPS")
 
 
 class VideoGroupedResult(BaseModel):

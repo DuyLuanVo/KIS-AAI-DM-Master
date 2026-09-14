@@ -4,8 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KIS Architect - Hệ thống Truy xuất Kho tư liệu Kiến trúc Việt Nam</title>
-    <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
     <div class="main-container">
@@ -64,12 +66,19 @@
 
                         <!-- Object Filter Section -->
                         <div class="input-group">
-                            <label for="objectInput">Lọc theo vật thể nội thất / ngoại thất (YOLOv8 Filter):</label>
+                            <label for="objectInput">Lọc theo cấu kiện kiến trúc / vật thể (YOLO Filter):</label>
                             <textarea
                                 id="objectInput"
-                                placeholder="Ví dụ (mỗi từ một dòng):&#10;Chair&#10;Dining table&#10;Potted plant&#10;Person"
+                                placeholder="Nhập cấu kiện cần lọc (mỗi dòng hoặc dấu phẩy)&#10;Ví dụ:&#10;bell tower&#10;stone statue&#10;wooden column&#10;curved roof"
                                 rows="3"
                             ></textarea>
+                            <div class="filter-suggestion-chips" id="filterSuggestionChips">
+                                <button type="button" class="sugg-chip" data-filter="bell tower">bell tower</button>
+                                <button type="button" class="sugg-chip" data-filter="stone statue">stone statue</button>
+                                <button type="button" class="sugg-chip" data-filter="wooden column">wooden column</button>
+                                <button type="button" class="sugg-chip" data-filter="curved roof">curved roof</button>
+                                <button type="button" class="sugg-chip" data-filter="temple gate">temple gate</button>
+                            </div>
                         </div>
 
                         <!-- Search Buttons -->
@@ -117,7 +126,7 @@
             <div class="content-wrapper">
                 <!-- Left Sidebar - Ingestion Form -->
                 <div class="sidebar">
-                    <div class="search-section">
+                    <div class="search-section ingest-sidebar-section">
                         <h3>📥 Cấu hình Nạp Kho Ảnh</h3>
                         
                         <div class="input-group">
@@ -145,8 +154,8 @@
                         <div class="results-header">
                             <h2>📊 Giám sát Tiến trình Nạp & Phân tích AI</h2>
                             <div class="connection-status">
-                                <span id="wsStatusIcon" class="status-dot offline"></span>
-                                <span id="wsStatusText">Mất kết nối WebSocket (Đang Polling)</span>
+                                <span id="wsStatusIcon" class="status-dot"></span>
+                                <span id="wsStatusText">Đang kết nối WebSocket...</span>
                             </div>
                         </div>
 
@@ -187,27 +196,85 @@
         </div>
 
         <!-- Detail Image Modal -->
+        <!-- Detail Modal for Architectural Photography -->
         <div id="carouselModal" class="carousel-modal" style="display: none;">
-            <div class="carousel-content" style="max-width: 850px;">
+            <div class="carousel-content modal-detail-content">
                 <div class="carousel-header">
-                    <h3 id="carouselTitle">🏛️ Chi tiết Công trình & Phân tích AI</h3>
-                    <button type="button" id="closeCarousel" class="close-btn">&times;</button>
+                    <h3 id="carouselTitle">Chi tiết Công trình & Phân tích AI</h3>
+                    <button type="button" id="closeCarousel" class="close-btn" title="Đóng (Esc)" aria-label="Đóng">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
                 </div>
 
-                <div class="carousel-body" style="padding: 24px;">
-                    <div class="carousel-container" style="justify-content: center;">
-                        <div class="frame-display" style="width: 100%; max-width: 780px;">
-                            <img id="currentFrameImg" src="" alt="Current architectural photo" style="max-height: 580px; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);" />
-                            <div class="frame-info" style="margin-top: 16px; padding: 12px 16px; background: rgba(30, 41, 59, 0.95); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
-                                <div class="frame-details" style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                                    <span id="framePosition" style="font-weight: 600; color: #38bdf8;">Album: Bộ sưu tập 1</span>
-                                    <span id="frameTime" style="color: #4ade80;">AI Confidence: 94%</span>
-                                </div>
-                                <div class="frame-metadata" style="display: flex; justify-content: space-between; font-size: 0.9em; color: #94a3b8;">
-                                    <span id="frameId">ID: ARCH_001</span>
-                                    <span id="frameIdx">Objects detected: Chair, Table</span>
-                                </div>
+                <div class="carousel-body detail-modal-body">
+                    <!-- Left Stage: Adaptive Image Viewport (Supports all aspect ratios) -->
+                    <div class="modal-image-stage">
+                        <img id="currentFrameImg" src="" alt="Ảnh kiến trúc" />
+                        <div class="modal-floating-actions">
+                            <a id="viewFullImageBtn" href="#" target="_blank" class="view-full-btn" title="Xem ảnh gốc độ phân giải cao">
+                                Xem ảnh gốc
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Right Panel: Info & AI Analytics -->
+                    <div class="modal-info-panel">
+                        <!-- Card 1: Tên công trình & Điểm tương đồng -->
+                        <div class="info-card">
+                            <div class="info-card-header">
+                                <span class="info-badge">Tên Công Trình</span>
+                                <span id="frameTime" class="score-badge">Độ khớp: --%</span>
                             </div>
+                            <h4 id="framePosition" class="info-title">Đang tải...</h4>
+                        </div>
+
+                        <!-- Card 2: Lịch sử & Mô tả kiến trúc -->
+                        <div class="info-card" id="cardMonumentDesc">
+                            <div class="info-label">Mô tả & Lịch sử Kiến trúc</div>
+                            <div id="monumentDesc" class="monument-desc-box">Đang cập nhật tư liệu mô tả...</div>
+                        </div>
+
+                        <!-- Card 3: Thể loại & Phân loại -->
+                        <div class="info-card" id="cardMonumentCategories">
+                            <div class="info-label">Thể loại & Phân loại</div>
+                            <div id="monumentCategories" class="category-tags-container">
+                                <span class="category-tag">Kiến trúc Việt Nam</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 4: Cấu kiện kiến trúc nhận diện (YOLO-World) -->
+                        <div class="info-card">
+                            <div class="info-label">Cấu kiện kiến trúc nhận diện (YOLO-World)</div>
+                            <div id="frameIdx" class="object-tags-container">
+                                <span class="no-object-text">Đang phân tích cấu kiện...</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 5: Thông tin tư liệu & Nguồn gốc -->
+                        <div class="info-card meta-details-card">
+                            <div class="info-label">Thông tin tư liệu</div>
+                            <div class="meta-row">
+                                <span class="meta-field-name">Tệp dữ liệu:</span>
+                                <span id="frameId" class="meta-field-value-mono">photo.jpg</span>
+                            </div>
+                            <div class="meta-row" id="metaDateRow">
+                                <span class="meta-field-name">Niên đại / Ngày ghi:</span>
+                                <span id="monumentDate" class="meta-field-value">--</span>
+                            </div>
+                            <div class="meta-row" id="metaAuthorRow">
+                                <span class="meta-field-name">Nguồn / Tác giả:</span>
+                                <span id="monumentAuthor" class="meta-field-value">--</span>
+                            </div>
+                        </div>
+
+                        <!-- Card 6: Thao tác tìm kiếm tương tự -->
+                        <div class="info-card quick-actions">
+                            <button type="button" id="searchSimilarBtn" class="btn-search-similar">
+                                Tìm kiếm hình ảnh tương tự
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -215,6 +282,6 @@
         </div>
     </div>
 
-    <script src="script.js?v=4"></script>
+    <script src="script.js?v=14"></script>
 </body>
 </html>

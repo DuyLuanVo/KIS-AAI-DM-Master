@@ -214,4 +214,12 @@ data/
 minio_storage/
 qdrant_storage/
 
+# AI Model Weights & Checkpoints (large binary files)
+*.pt
+*.pth
+*.bin
+*.onnx
+weights/
+**/weights/
+
 

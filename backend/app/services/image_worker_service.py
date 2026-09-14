@@ -6,6 +6,7 @@ and indexing to Qdrant & MinIO.
 import shutil
 import uuid
 import threading
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, List
@@ -95,25 +96,49 @@ def run_image_ingest_pipeline(batch_id: str, batch_name: str, temp_dir: Path, fi
                 logger.error(f"Failed to encode {file_name} with CLIP: {e}")
                 vector = np.random.rand(512).astype(np.float32).tolist()
 
-            # 3. Detect objects with YOLOv8
+            # 3. Đọc Metadata đồng hành nếu có (Companion JSON file)
+            clean_stem = Path(file_name).stem.replace(" ", "_")
+            meta = {}
+            json_candidate = Path(file_path).with_suffix('.json')
+            if not json_candidate.exists():
+                # Thử tìm file JSON theo stem gốc
+                json_candidate = Path(file_path).parent / f"{Path(file_name).stem}.json"
+
+            if json_candidate.exists():
+                try:
+                    with open(json_candidate, 'r', encoding='utf-8') as jf:
+                        meta = json.load(jf)
+                except Exception as je:
+                    logger.warning(f"Không thể đọc file metadata JSON {json_candidate}: {je}")
+
+            monument_name = meta.get("monument_name") or Path(file_name).stem.replace("_", " ")
+            description = meta.get("description") or f"Tư liệu hình ảnh công trình kiến trúc {monument_name}."
+            categories = meta.get("categories", [])
+            date_val = meta.get("date", "")
+            author_val = meta.get("artist", "")
+            source_url = meta.get("source_url", "")
+            lat_val = meta.get("latitude")
+            lon_val = meta.get("longitude")
+
+            # 4. Nhận diện cấu kiện kiến trúc với YOLO-World (dựa trên ngữ cảnh metadata)
             try:
                 img = cv2.imread(str(file_path))
                 if img is None:
                     objects, object_labels = [], []
                 else:
-                    objects, object_labels = yolo_service.detect_objects(img)
+                    context_cats = categories if categories else [monument_name]
+                    objects, object_labels = yolo_service.detect_objects(img, context_categories=context_cats)
             except Exception as e:
-                logger.error(f"YOLO detection failed on {file_path}: {e}")
+                logger.error(f"YOLO-World detection failed on {file_path}: {e}")
                 objects, object_labels = [], []
 
-            # 4. Create Qdrant Point (fully backward-compatible with search result schema)
+            # 5. Khởi tạo Qdrant Point với Payload Metadata đầy đủ
             point_id = str(uuid.uuid4())
             uploaded_point_ids.append(point_id)
             
-            clean_stem = Path(file_name).stem.replace(" ", "_")
             payload = {
                 "original_id": f"{batch_id}_{idx:03d}_{clean_stem}",
-                "video_id": batch_name or f"Album_{batch_id[:8]}", # Using video_id field as Album/Collection name for grouping in UI
+                "video_id": batch_name or f"Album_{batch_id[:8]}", # Using video_id field as Album/Collection name
                 "keyframe_idx": idx,
                 "keyframe_name": file_name,
                 "jpg_path": object_key,
@@ -124,7 +149,15 @@ def run_image_ingest_pipeline(batch_id: str, batch_name: str, temp_dir: Path, fi
                 "objects": objects,
                 "object_labels": object_labels,
                 "object_count": len(objects),
-                "has_objects": len(objects) > 0
+                "has_objects": len(objects) > 0,
+                "monument_name": monument_name,
+                "description": description,
+                "categories": categories,
+                "date": date_val,
+                "author": author_val,
+                "source_url": source_url,
+                "latitude": lat_val,
+                "longitude": lon_val
             }
 
             point = PointStruct(
