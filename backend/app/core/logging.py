@@ -9,6 +9,12 @@ from loguru import logger
 
 def setup_logging():
     """Setup logging configuration"""
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+            sys.stderr.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
 
     # Remove default logger
     logger.remove()

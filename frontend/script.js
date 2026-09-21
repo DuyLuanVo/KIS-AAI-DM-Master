@@ -59,18 +59,21 @@ const ingestTabContent = document.getElementById('ingestTabContent');
 
 // Ingest Form Elements
 const ingestBatchNameInput = document.getElementById('ingestBatchNameInput');
+const ingestCategoriesInput = document.getElementById('ingestCategoriesInput');
+const ingestDescInput = document.getElementById('ingestDescInput');
 const ingestFilesInput = document.getElementById('ingestFilesInput');
 const ingestFilesCountHint = document.getElementById('ingestFilesCountHint');
 const startIngestBtn = document.getElementById('startIngestBtn');
 
-// Monitor Elements
-const wsStatusIcon = document.getElementById('wsStatusIcon');
-const wsStatusText = document.getElementById('wsStatusText');
-const ingestTaskListBody = document.getElementById('ingestTaskListBody');
-
-// Connection State
-let ingestSocket = null;
-let ingestPollInterval = null;
+// Ingest Status Containers
+const ingestWelcomeBox = document.getElementById('ingestWelcomeBox');
+const ingestProgressBox = document.getElementById('ingestProgressBox');
+const ingestSuccessBox = document.getElementById('ingestSuccessBox');
+const ingestSuccessMsg = document.getElementById('ingestSuccessMsg');
+const ingestSuccessDetail = document.getElementById('ingestSuccessDetail');
+const ingestDetectedChips = document.getElementById('ingestDetectedChips');
+const goToSearchAfterIngestBtn = document.getElementById('goToSearchAfterIngestBtn');
+const ingestResultSummaryBadge = document.getElementById('ingestResultSummaryBadge');
 
 // Event listeners
 searchBtn.addEventListener('click', (e) => {
@@ -731,24 +734,29 @@ function init() {
         });
     });
 
-    // Tab switching event listeners
-    searchTabBtn.addEventListener('click', () => {
-        searchTabBtn.classList.add('active');
-        ingestTabBtn.classList.remove('active');
-        searchTabContent.classList.add('active');
-        ingestTabContent.classList.remove('active');
-    });
 
-    ingestTabBtn.addEventListener('click', () => {
-        ingestTabBtn.classList.add('active');
-        searchTabBtn.classList.remove('active');
-        ingestTabContent.classList.add('active');
-        searchTabContent.classList.remove('active');
-        // Tự động kiểm tra và kết nối lại WebSocket nếu chưa kết nối
-        if (!ingestSocket || ingestSocket.readyState !== WebSocket.OPEN) {
-            connectWebSocket();
-        }
-    });
+    // Tab switching event listeners
+    if (searchTabBtn && ingestTabBtn) {
+        searchTabBtn.addEventListener('click', () => {
+            searchTabBtn.classList.add('active');
+            ingestTabBtn.classList.remove('active');
+            if (searchTabContent) searchTabContent.style.display = 'block';
+            if (ingestTabContent) ingestTabContent.style.display = 'none';
+        });
+
+        ingestTabBtn.addEventListener('click', () => {
+            ingestTabBtn.classList.add('active');
+            searchTabBtn.classList.remove('active');
+            if (ingestTabContent) ingestTabContent.style.display = 'block';
+            if (searchTabContent) searchTabContent.style.display = 'none';
+        });
+    }
+
+    if (goToSearchAfterIngestBtn && searchTabBtn) {
+        goToSearchAfterIngestBtn.addEventListener('click', () => {
+            searchTabBtn.click();
+        });
+    }
 
     // Ingest file select count hint updater
     if (ingestFilesInput) {
@@ -758,17 +766,16 @@ function init() {
                 if (count > 0) {
                     ingestFilesCountHint.innerHTML = `✅ <strong>Đã chọn:</strong> ${count} tệp ảnh kiến trúc sẵn sàng xử lý.`;
                 } else {
-                    ingestFilesCountHint.innerHTML = `💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Cmd/Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.`;
+                    ingestFilesCountHint.innerHTML = `💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.`;
                 }
             }
         });
     }
 
     // Start Ingest listener
-    startIngestBtn.addEventListener('click', handleStartIngestion);
-
-    // Initialize Ingest Monitoring
-    initIngestMonitoring();
+    if (startIngestBtn) {
+        startIngestBtn.addEventListener('click', handleStartIngestion);
+    }
 
     // Initialize button states
     updateButtonStates();
@@ -884,29 +891,36 @@ function showNextFrame() {
 }
 
 // ==========================================================================
-// INGEST PIPELINE FUNCTIONS FOR ARCHITECTURAL PHOTOS
+// INGEST PIPELINE (ZERO-REDIS DIRECT FASTAPI -> MINIO & QDRANT)
 // ==========================================================================
 
-// Handle Ingest submit (FormData batch upload)
 async function handleStartIngestion() {
     if (!ingestFilesInput || !ingestFilesInput.files || ingestFilesInput.files.length === 0) {
         alert("Vui lòng chọn ít nhất 1 tệp ảnh kiến trúc từ máy tính của bạn.");
         return;
     }
 
-    const batchName = ingestBatchNameInput ? ingestBatchNameInput.value.trim() : "Bộ sưu tập Kiến trúc";
+    const batchName = ingestBatchNameInput ? ingestBatchNameInput.value.trim() : "";
+    const categories = ingestCategoriesInput ? ingestCategoriesInput.value.trim() : "";
+    const description = ingestDescInput ? ingestDescInput.value.trim() : "";
     const files = ingestFilesInput.files;
 
     const formData = new FormData();
-    if (batchName) {
-        formData.append("batch_name", batchName);
-    }
+    formData.append("batch_name", batchName || "Bộ sưu tập Kiến trúc");
+    if (categories) formData.append("categories", categories);
+    if (description) formData.append("description", description);
+
     for (let i = 0; i < files.length; i++) {
         formData.append("files", files[i]);
     }
 
+    // UI state: Loading
     startIngestBtn.disabled = true;
-    startIngestBtn.textContent = "⌛ Đang tải ảnh & khởi chạy Pháp Sư AI...";
+    startIngestBtn.textContent = "⌛ Đang xử lý AI & Lưu vào MinIO/Qdrant...";
+    if (ingestWelcomeBox) ingestWelcomeBox.style.display = "none";
+    if (ingestSuccessBox) ingestSuccessBox.style.display = "none";
+    if (ingestProgressBox) ingestProgressBox.style.display = "block";
+    if (ingestResultSummaryBadge) ingestResultSummaryBadge.style.display = "none";
 
     try {
         const response = await fetch(`${API_BASE_URL}/api/v1/images/ingest/upload`, {
@@ -916,241 +930,49 @@ async function handleStartIngestion() {
 
         if (!response.ok) {
             const err = await response.text();
-            throw new Error(err || "Lỗi yêu cầu tải lên kho ảnh");
+            throw new Error(err || "Lỗi nạp ảnh lên hệ thống.");
         }
 
         const data = await response.json();
-        console.log("Ingest response:", data);
-        alert(data.message);
+        console.log("Upload response:", data);
 
-        // Reset inputs
-        if (ingestBatchNameInput) ingestBatchNameInput.value = "";
+        // Show success
+        if (ingestProgressBox) ingestProgressBox.style.display = "none";
+        if (ingestSuccessBox) ingestSuccessBox.style.display = "block";
+        if (ingestSuccessMsg) ingestSuccessMsg.textContent = `🎉 Nạp thành công ${data.uploaded_count} ảnh vào hệ thống!`;
+        if (ingestSuccessDetail) ingestSuccessDetail.textContent = `Mã mẻ ảnh: ${data.batch_id} • Đã lưu trữ ảnh gốc lên MinIO S3 và đánh chỉ mục vector vào Qdrant.`;
+
+        if (ingestResultSummaryBadge) {
+            ingestResultSummaryBadge.style.display = "inline-block";
+            ingestResultSummaryBadge.textContent = `${data.uploaded_count} ảnh đã nạp`;
+        }
+
+        // Render detected chips
+        if (ingestDetectedChips) {
+            const labels = data.all_detected_objects || [];
+            if (labels.length > 0) {
+                ingestDetectedChips.innerHTML = labels.map(l => `<span class="category-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">${l}</span>`).join(' ');
+            } else {
+                ingestDetectedChips.innerHTML = `<span class="no-object-text">Toàn cảnh kiến trúc (Không phát hiện cấu kiện phụ)</span>`;
+            }
+        }
+
+        // Reset file input
         ingestFilesInput.value = "";
         if (ingestFilesCountHint) {
-            ingestFilesCountHint.innerHTML = `💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Cmd/Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.`;
+            ingestFilesCountHint.innerHTML = `💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.`;
         }
 
-        // Refresh tasks table
-        if (ingestPollInterval === null && ingestSocket === null) {
-            initIngestMonitoring();
-        }
     } catch (error) {
-        console.error("Start Ingest error:", error);
-        alert(`Lỗi: ${error.message}`);
+        console.error("Ingest error:", error);
+        alert(`Lỗi nạp ảnh: ${error.message}`);
+        if (ingestProgressBox) ingestProgressBox.style.display = "none";
+        if (ingestWelcomeBox) ingestWelcomeBox.style.display = "block";
     } finally {
         startIngestBtn.disabled = false;
-        startIngestBtn.textContent = "⚡ Bắt đầu Phân tích AI & Lưu Trữ";
+        startIngestBtn.textContent = "⚡ Phân tích AI & Lưu Vào Kho";
     }
 }
-
-let wsReconnectTimer = null;
-
-// Ingest Monitoring Initialization
-function initIngestMonitoring() {
-    connectWebSocket();
-}
-
-// Connect to WebSocket with Auto-Reconnect
-function connectWebSocket() {
-    // Nếu đang kết nối hoặc đã kết nối thì không tạo mới
-    if (ingestSocket && (ingestSocket.readyState === WebSocket.OPEN || ingestSocket.readyState === WebSocket.CONNECTING)) {
-        return;
-    }
-
-    if (wsReconnectTimer) {
-        clearTimeout(wsReconnectTimer);
-        wsReconnectTimer = null;
-    }
-
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname || 'localhost';
-    const wsUrl = `${wsProtocol}//${host}:8000/api/v1/images/ingest/ws`;
-    
-    console.log("Connecting to WebSocket:", wsUrl);
-    if (wsStatusText && (!ingestSocket || ingestSocket.readyState === WebSocket.CLOSED)) {
-        wsStatusText.textContent = "Đang kết nối WebSocket...";
-        if (wsStatusIcon) wsStatusIcon.className = "status-dot";
-    }
-
-    try {
-        ingestSocket = new WebSocket(wsUrl);
-
-        ingestSocket.onopen = () => {
-            console.log("WebSocket connection established");
-            if (wsStatusIcon) wsStatusIcon.className = "status-dot online";
-            if (wsStatusText) wsStatusText.textContent = "Kết nối WebSocket thành công (Real-time)";
-            // Dừng Polling dự phòng khi WebSocket đã hoạt động
-            if (ingestPollInterval) {
-                clearInterval(ingestPollInterval);
-                ingestPollInterval = null;
-            }
-        };
-
-        ingestSocket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === "tasks_update") {
-                    renderIngestTaskList(data.tasks);
-                }
-            } catch (err) {
-                console.error("Error parsing WebSocket message:", err);
-            }
-        };
-
-        ingestSocket.onerror = (error) => {
-            console.warn("WebSocket warning/error:", error);
-        };
-
-        ingestSocket.onclose = () => {
-            console.log("WebSocket connection closed. Switching to polling & retrying in 3s...");
-            ingestSocket = null;
-            if (wsStatusIcon) wsStatusIcon.className = "status-dot offline";
-            if (wsStatusText) wsStatusText.textContent = "Mất kết nối WebSocket (Đang Polling - Sẽ thử lại...)";
-            startPolling();
-
-            // Tự động thử kết nối lại sau 3 giây
-            if (!wsReconnectTimer) {
-                wsReconnectTimer = setTimeout(() => {
-                    wsReconnectTimer = null;
-                    console.log("🔄 Retrying WebSocket connection...");
-                    connectWebSocket();
-                }, 3000);
-            }
-        };
-    } catch (err) {
-        console.error("Failed to create WebSocket:", err);
-        startPolling();
-        if (!wsReconnectTimer) {
-            wsReconnectTimer = setTimeout(() => {
-                wsReconnectTimer = null;
-                connectWebSocket();
-            }, 3000);
-        }
-    }
-}
-
-// Fallback Polling
-function startPolling() {
-    if (ingestPollInterval) {
-        clearInterval(ingestPollInterval);
-    }
-    fetchTasksViaApi();
-    ingestPollInterval = setInterval(fetchTasksViaApi, 3000);
-}
-
-// Fetch tasks via standard REST API
-async function fetchTasksViaApi() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/images/ingest/tasks`);
-        if (response.ok) {
-            const tasks = await response.json();
-            renderIngestTaskList(tasks);
-        }
-    } catch (err) {
-        console.error("Polling error fetching tasks:", err);
-    }
-}
-
-// Render tasks list in the table
-function renderIngestTaskList(tasks) {
-    if (!ingestTaskListBody) return;
-
-    if (!tasks || tasks.length === 0) {
-        ingestTaskListBody.innerHTML = `
-            <tr>
-                <td colspan="6" class="table-empty">Chưa có tác vụ nạp kho ảnh nào được khởi chạy.</td>
-            </tr>
-        `;
-        return;
-    }
-
-    // Sort tasks: processing first, then others
-    tasks.sort((a, b) => {
-        const aActive = ["PENDING", "PROCESSING"].includes(a.status);
-        const bActive = ["PENDING", "PROCESSING"].includes(b.status);
-        if (aActive && !bActive) return -1;
-        if (!aActive && bActive) return 1;
-        return (b.id || "").localeCompare(a.id || "");
-    });
-
-    let html = "";
-    tasks.forEach(task => {
-        const isBatch = task.type === "image_batch";
-        const taskName = isBatch ? (task.batch_name || task.id) : (task.channel_name || task.id || "N/A");
-        const typeLabel = isBatch ? "🖼️ Album Kiến Trúc" : "📁 Bộ Sưu Tập";
-
-        // Progress display
-        let progressHtml = "";
-        if (isBatch) {
-            const completed = task.completed_images || 0;
-            const total = task.total_images || 1;
-            const pct = Math.round((completed / total) * 100);
-            progressHtml = `
-                <div class="progress-bar-container">
-                    <div class="progress-bar-fill" style="width: ${task.progress || pct}%"></div>
-                </div>
-                <span class="progress-percent">${completed}/${total} (${task.progress || pct}%)</span>
-            `;
-        } else {
-            const pct = task.progress || 0;
-            progressHtml = `
-                <div class="progress-bar-container">
-                    <div class="progress-bar-fill" style="width: ${pct}%"></div>
-                </div>
-                <span class="progress-percent">${pct}%</span>
-            `;
-        }
-
-        const status = (task.status || "UNKNOWN").toLowerCase();
-        const statusBadge = `<span class="status-badge ${status}">${task.status}</span>`;
-        const message = task.message || "";
-        const canCancel = ["PENDING", "PROCESSING"].includes(task.status);
-        const actionButton = canCancel 
-            ? `<button onclick="handleCancelTask('${task.id}', '${task.type}')" class="btn btn-outline" style="padding: 4px 8px; font-size: 11px; color: #e74c3c; border-color: #e74c3c;">🚫 Hủy</button>` 
-            : `<span style="color: #a4b0be; font-size: 11px;">-</span>`;
-
-        html += `
-            <tr>
-                <td style="font-weight: 500;">
-                    <div title="${task.id}">${taskName}</div>
-                    <div style="font-size: 10px; color: #747d8c; margin-top: 2px;">ID: ${task.id}</div>
-                </td>
-                <td>${typeLabel}</td>
-                <td>${statusBadge}</td>
-                <td style="white-space: nowrap;">${progressHtml}</td>
-                <td style="font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${message}">${message}</td>
-                <td>${actionButton}</td>
-            </tr>
-        `;
-    });
-
-    ingestTaskListBody.innerHTML = html;
-}
-
-// Handle task cancellation
-async function handleCancelTask(taskId, taskType) {
-    if (!confirm(`Bạn có chắc chắn muốn hủy tác vụ ${taskId}?`)) {
-        return;
-    }
-
-    try {
-        let url = `${API_BASE_URL}/api/v1/images/ingest/cancel/${taskId}`;
-        if (taskType !== "image_batch") {
-            url = `${API_BASE_URL}/api/v1/videos/ingest/cancel/${taskType}/${taskId}`;
-        }
-        const response = await fetch(url, { method: 'POST' });
-        if (response.ok) {
-            console.log(`Cancellation request sent for ${taskId}`);
-        } else {
-            console.error("Cancel failed status:", response.status);
-        }
-    } catch (err) {
-        console.error("Error cancelling task:", err);
-    }
-}
-
-// Export function to global window scope so HTML onclick handlers can access it
-window.handleCancelTask = handleCancelTask;
 
 // Start the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', init);

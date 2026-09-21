@@ -122,62 +122,78 @@
         </div>
 
         <!-- INGEST TAB CONTENT -->
-        <div id="ingestTabContent" class="tab-content">
+        <div id="ingestTabContent" class="tab-content" style="display: none;">
             <div class="content-wrapper">
-                <!-- Left Sidebar - Ingestion Form -->
+                <!-- Left Sidebar - Ingest Form -->
                 <div class="sidebar">
                     <div class="search-section ingest-sidebar-section">
-                        <h3>📥 Cấu hình Nạp Kho Ảnh</h3>
+                        <h3>📥 Nạp Kho Ảnh Kiến Trúc Mới</h3>
                         
                         <div class="input-group">
-                            <label for="ingestBatchNameInput">Tên Bộ Sưu Tập / Tên Dự Án:</label>
-                            <input type="text" id="ingestBatchNameInput" placeholder="Ví dụ: Nhà Phố Nhiệt Đới - ArchDaily 2024" class="text-input">
+                            <label for="ingestBatchNameInput">Tên Công Trình / Bộ Sưu Tập:</label>
+                            <input type="text" id="ingestBatchNameInput" placeholder="Ví dụ: Chùa Tây Phương - Hà Nội" class="text-input" style="width: 100%; border-radius: 8px; padding: 10px; background: rgba(15, 23, 42, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.1);">
                         </div>
 
                         <div class="input-group">
-                            <label for="ingestFilesInput">Chọn Tệp Ảnh Kiến Trúc (Chọn Hàng Loạt):</label>
+                            <label for="ingestCategoriesInput">Thể loại kiến trúc (phân tách bằng dấu phẩy):</label>
+                            <input type="text" id="ingestCategoriesInput" placeholder="Ví dụ: Chùa cổ, Cột gỗ, Di tích thời Lê" class="text-input" style="width: 100%; border-radius: 8px; padding: 10px; background: rgba(15, 23, 42, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.1);">
+                        </div>
+
+                        <div class="input-group">
+                            <label for="ingestDescInput">Mô tả lịch sử / Kiến trúc:</label>
+                            <textarea id="ingestDescInput" rows="3" placeholder="Nhập tóm tắt lịch sử, cấu trúc, niên đại hoặc vị trí công trình..." style="width: 100%; border-radius: 8px; padding: 10px; background: rgba(15, 23, 42, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); font-family: inherit; font-size: 13px;"></textarea>
+                        </div>
+
+                        <div class="input-group">
+                            <label for="ingestFilesInput">Chọn tệp ảnh kiến trúc (Hỗ trợ chọn nhiều ảnh):</label>
                             <input type="file" id="ingestFilesInput" accept="image/*" multiple class="file-input">
                             <div class="upload-hint" id="ingestFilesCountHint" style="margin-top: 8px; color: var(--primary-light, #38bdf8);">
-                                💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Cmd/Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.
+                                💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.
                             </div>
                         </div>
 
                         <div class="button-group">
-                            <button type="button" id="startIngestBtn" class="btn btn-primary">⚡ Bắt đầu Phân tích AI & Lưu Trữ</button>
+                            <button type="button" id="startIngestBtn" class="btn btn-primary" style="width: 100%;">⚡ Phân tích AI & Lưu Vào Kho</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right Side - Ingestion Tasks Monitor -->
+                <!-- Right Side - Ingestion Results / Preview -->
                 <div class="main-content">
                     <div class="results-section">
                         <div class="results-header">
-                            <h2>📊 Giám sát Tiến trình Nạp & Phân tích AI</h2>
-                            <div class="connection-status">
-                                <span id="wsStatusIcon" class="status-dot"></span>
-                                <span id="wsStatusText">Đang kết nối WebSocket...</span>
-                            </div>
+                            <h2>📊 Kết Quả Phân Tích & Nạp Dữ Liệu</h2>
+                            <span id="ingestResultSummaryBadge" class="score-badge" style="display: none;">Đã sẵn sàng</span>
                         </div>
 
-                        <!-- Tasks list container -->
-                        <div class="tasks-table-container">
-                            <table class="tasks-table">
-                               <thead>
-                                   <tr>
-                                       <th>ID / Tên Bộ Sưu Tập</th>
-                                       <th>Loại</th>
-                                       <th>Trạng thái</th>
-                                       <th>Tiến độ</th>
-                                       <th>Thông điệp của AI</th>
-                                       <th>Hành động</th>
-                                   </tr>
-                               </thead>
-                               <tbody id="ingestTaskListBody">
-                                   <tr>
-                                       <td colspan="6" class="table-empty">Chưa có tác vụ nạp kho ảnh nào được khởi chạy.</td>
-                                   </tr>
-                               </tbody>
-                            </table>
+                        <div id="ingestStatusContainer" style="padding: 24px;">
+                            <div class="info-card" id="ingestWelcomeBox" style="background: rgba(30, 41, 59, 0.5); border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 12px; padding: 32px; text-align: center;">
+                                <div style="font-size: 40px; margin-bottom: 12px;">🏛️</div>
+                                <h3 style="color: #f1f5f9; margin-bottom: 8px;">Chọn ảnh công trình để nạp vào hệ thống</h3>
+                                <p style="color: #94a3b8; font-size: 14px; max-width: 500px; margin: 0 auto;">Hệ thống sẽ tự động tải ảnh lên <strong>MinIO S3</strong>, trích xuất vector 512 chiều bằng <strong>CLIP</strong> và nhận diện các cấu kiện kiến trúc bằng <strong>YOLO-World</strong> để lưu vào <strong>Qdrant</strong>.</p>
+                            </div>
+
+                            <div id="ingestProgressBox" style="display: none; text-align: center; padding: 40px 20px;">
+                                <div class="spinner" style="margin: 0 auto 16px;"></div>
+                                <h4 style="color: #38bdf8; font-size: 16px;">AI đang phân tích CLIP & nhận diện cấu kiện YOLO-World...</h4>
+                                <p style="color: #94a3b8; font-size: 13px;">Vui lòng đợi trong giây lát khi hệ thống lập chỉ mục vào Qdrant & MinIO</p>
+                            </div>
+
+                            <div id="ingestSuccessBox" style="display: none;">
+                                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                                    <h4 style="color: #10b981; margin-bottom: 6px;" id="ingestSuccessMsg">✅ Đã nạp thành công ảnh vào kho tư liệu!</h4>
+                                    <p style="color: #cbd5e1; font-size: 13px;" id="ingestSuccessDetail"></p>
+                                </div>
+
+                                <div class="info-card">
+                                    <div class="info-label">Các cấu kiện kiến trúc phát hiện được (YOLO-World):</div>
+                                    <div id="ingestDetectedChips" class="category-tags-container" style="margin-top: 8px;"></div>
+                                </div>
+
+                                <div style="margin-top: 20px;">
+                                    <button type="button" id="goToSearchAfterIngestBtn" class="btn btn-primary">🔍 Đi đến Tìm kiếm Ngay</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

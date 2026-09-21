@@ -12,7 +12,7 @@ if sys.platform == "win32":
 
 
 # URL của bạn (đã thêm format=json)
-PETSCAN_URL = "https://petscan.wmcloud.org/?language=commons&project=wikimedia&depth=4&categories=Architecture+of+Vietnam&ns%5B6%5D=1&format=json&doit=1"
+PETSCAN_URL = "https://petscan.wmcloud.org/?language=commons&project=wikimedia&depth=3&categories=Architecture+of+Vietnam&ns%5B6%5D=1&format=json&doit=1"
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "vietnam_architecture")
 
 def get_petscan_results():
@@ -52,7 +52,7 @@ def clean_html(raw_html):
     cleantext = re.sub(r'<.*?>', ' ', str(raw_html))
     return ' '.join(cleantext.split())
 
-def download_images(titles, limit=50):
+def download_images(titles, limit=5000):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print(f"📂 Ảnh và Metadata sẽ được lưu vào: {OUTPUT_DIR}")
     

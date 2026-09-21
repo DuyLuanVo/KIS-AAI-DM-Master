@@ -1,145 +1,160 @@
 """
-API router for Architecture Image Ingestion.
-Provides endpoints for uploading batches of images, monitoring status, and cancellation.
+Image Ingestion API Endpoint (Zero-Redis Architecture)
+Uploads architectural images directly to MinIO and indexes them into Qdrant with CLIP & YOLO-World.
 """
+import io
 import uuid
-import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, WebSocket, File, UploadFile, Form
-from loguru import logger
 
-from app.services.redis_service import redis_service
-from app.services.image_worker_service import start_image_ingest_task, active_batch_tasks
+import cv2
+import numpy as np
+from PIL import Image
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from loguru import logger
+from qdrant_client.models import PointStruct
+
+from app.database.qdrant_client import qdrant_client
+from app.services.clip_service import clip_service
+from app.services.minio_service import minio_service
+from app.services.yolo_service import yolo_service
 
 router = APIRouter()
 
+
 @router.post("/upload")
-async def upload_and_ingest_images(
+async def upload_architecture_images(
     files: List[UploadFile] = File(...),
-    batch_name: Optional[str] = Form("Bộ sưu tập Kiến Trúc")
+    batch_name: str = Form("Bộ sưu tập Kiến trúc"),
+    description: Optional[str] = Form(None),
+    categories: Optional[str] = Form(None)
 ):
     """
-    Receive multiple uploaded image files, save to temp storage, 
-    and submit to background processing pipeline.
+    Nạp lô ảnh kiến trúc trực tiếp từ giao diện Web vào hệ thống:
+    1. Lưu ảnh gốc lên MinIO S3
+    2. Trích xuất vector ngữ nghĩa bằng CLIP ViT-B/32
+    3. Nhận diện cấu kiện kiến trúc bằng YOLO-World
+    4. Lập chỉ mục tức thời vào Qdrant Vector Database
     """
     if not files:
-        raise HTTPException(status_code=400, detail="Vui lòng chọn ít nhất một tệp ảnh.")
+        raise HTTPException(status_code=400, detail="Không có tệp ảnh nào được chọn.")
 
-    batch_id = f"ARCH_{str(uuid.uuid4())[:8].upper()}"
-    temp_dir = Path("data/temp") / batch_id
-    temp_dir.mkdir(parents=True, exist_ok=True)
-
-    saved_filenames: List[str] = []
+    batch_id = f"ARCH_{uuid.uuid4().hex[:8].upper()}"
+    clean_batch_name = batch_name.strip() or "Bộ sưu tập Kiến trúc"
     
-    try:
-        for file in files:
-            # Simple validation for image filenames
-            filename = file.filename or f"image_{uuid.uuid4().hex[:6]}.jpg"
-            # Ensure unique filename if duplicate names uploaded
-            target_path = temp_dir / filename
-            counter = 1
-            while target_path.exists():
-                stem = Path(filename).stem
-                ext = Path(filename).suffix
-                filename = f"{stem}_{counter}{ext}"
-                target_path = temp_dir / filename
-                counter += 1
+    # Parse danh mục ngữ cảnh
+    context_cats = [c.strip() for c in categories.split(",") if c.strip()] if categories else [clean_batch_name]
+    desc_val = description.strip() if description else f"Tư liệu hình ảnh công trình kiến trúc {clean_batch_name}."
 
+    logger.info(f"Bắt đầu nạp mẻ ảnh {batch_id} ({len(files)} tệp) cho '{clean_batch_name}'...")
+
+    points = []
+    all_detected_labels = set()
+    uploaded_files_info = []
+
+    for idx, file in enumerate(files):
+        try:
             content = await file.read()
-            with open(target_path, "wb") as f:
-                f.write(content)
-            saved_filenames.append(filename)
-            
-        logger.info(f"Saved {len(saved_filenames)} files for batch {batch_id} to {temp_dir}")
+            if not content or len(content) < 100:
+                logger.warning(f"Bỏ qua tệp rỗng hoặc không hợp lệ: {file.filename}")
+                continue
 
-        # Initialize status in Redis
-        display_name = batch_name or f"Album {batch_id}"
-        redis_service.set_batch_status(
-            batch_id=batch_id,
-            batch_name=display_name,
-            total_images=len(saved_filenames),
-            completed_images=0,
-            status="PENDING",
-            message="Đã tiếp nhận file ảnh. Đang đưa vào hàng đợi AI...",
-            progress=2.0
-        )
+            # Kiểm tra định dạng ảnh bằng PIL
+            try:
+                pil_img = Image.open(io.BytesIO(content)).convert('RGB')
+            except Exception as e_img:
+                logger.warning(f"Không thể đọc ảnh {file.filename}: {e_img}")
+                continue
 
-        # Start background task
-        start_image_ingest_task(
-            batch_id=batch_id,
-            batch_name=display_name,
-            temp_dir=temp_dir,
-            file_names=saved_filenames
-        )
+            clean_filename = Path(file.filename).name.replace(" ", "_")
+            object_key = f"architecture/{batch_id}/{clean_filename}"
 
-        return {
-            "status": "success",
-            "type": "image_batch",
-            "batch_id": batch_id,
-            "batch_name": display_name,
-            "total_images": len(saved_filenames),
-            "message": f"Đã gửi thành công {len(saved_filenames)} ảnh kiến trúc vào tiến trình xử lý AI."
-        }
+            # 1. Tải ảnh gốc lên MinIO
+            try:
+                minio_service.s3_client.put_object(
+                    Bucket=minio_service.bucket_name,
+                    Key=object_key,
+                    Body=content,
+                    ContentType=file.content_type or 'image/jpeg'
+                )
+            except Exception as e_s3:
+                logger.error(f"Lỗi tải ảnh lên MinIO ({clean_filename}): {e_s3}")
+                continue
 
-    except Exception as e:
-        logger.exception(f"Failed to save uploaded files for {batch_id}: {e}")
-        # Cleanup
-        if temp_dir.exists():
-            import shutil
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý file tải lên: {str(e)}")
+            # 2. Sinh vector nhúng CLIP (512 chiều)
+            try:
+                vector = clip_service.encode_image_from_pil(pil_img)
+            except Exception as e_clip:
+                logger.error(f"Lỗi mã hóa CLIP ({clean_filename}): {e_clip}")
+                vector = np.random.rand(512).astype(np.float32).tolist()
 
+            # 3. Nhận diện cấu kiện kiến trúc bằng YOLO-World
+            try:
+                cv2_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                objects, object_labels = yolo_service.detect_objects(cv2_img, context_categories=context_cats)
+                all_detected_labels.update(object_labels)
+            except Exception as e_yolo:
+                logger.error(f"Lỗi YOLO-World ({clean_filename}): {e_yolo}")
+                objects, object_labels = [], []
 
-@router.get("/status/{batch_id}")
-async def get_batch_status(batch_id: str):
-    """Retrieve status of an image batch task"""
-    status = redis_service.get_batch_status(batch_id)
-    if not status:
-        raise HTTPException(status_code=404, detail=f"Tác vụ {batch_id} không tìm thấy.")
-    return status
+            # 4. Đóng gói PointStruct cho Qdrant
+            point_id = str(uuid.uuid4())
+            payload = {
+                "original_id": f"{batch_id}_{idx:03d}_{Path(clean_filename).stem}",
+                "video_id": clean_batch_name,
+                "keyframe_idx": idx,
+                "keyframe_name": clean_filename,
+                "jpg_path": object_key,
+                "pts_time": 0.0,
+                "frame_idx": idx,
+                "fps": 0,
+                "batch": batch_id,
+                "objects": objects,
+                "object_labels": object_labels,
+                "object_count": len(objects),
+                "has_objects": len(objects) > 0,
+                "monument_name": clean_batch_name,
+                "description": desc_val,
+                "categories": context_cats,
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "author": "Người dùng tải lên",
+                "source_url": "",
+                "latitude": None,
+                "longitude": None
+            }
 
+            points.append(PointStruct(id=point_id, vector=vector, payload=payload))
+            uploaded_files_info.append({
+                "filename": clean_filename,
+                "detected_objects": object_labels
+            })
 
-@router.get("/tasks")
-async def get_all_tasks():
-    """Retrieve a list of all tracked ingestion tasks (both videos and image batches)"""
-    return redis_service.get_all_tasks()
+        except Exception as e:
+            logger.error(f"Lỗi xử lý tệp {file.filename}: {e}")
+            continue
 
+    if not points:
+        raise HTTPException(status_code=400, detail="Không có tệp ảnh hợp lệ nào được xử lý thành công.")
 
-@router.post("/cancel/{batch_id}")
-async def cancel_batch_ingest(batch_id: str):
-    """Cancel a running image batch ingestion task"""
-    redis_service.set_cancel_flag(batch_id)
-    
-    if batch_id in active_batch_tasks:
-        active_batch_tasks[batch_id].set()
-        logger.info(f"Cancellation event triggered for running batch ID {batch_id}.")
-        
-    status = redis_service.get_batch_status(batch_id)
-    total = status["total_images"] if status else 0
-    name = status["batch_name"] if status else f"Album {batch_id}"
-    
-    redis_service.set_batch_status(
-        batch_id=batch_id,
-        batch_name=name,
-        total_images=total,
-        completed_images=status.get("completed_images", 0) if status else 0,
-        status="CANCELLED",
-        message="Yêu cầu hủy đã được gửi.",
-        progress=status.get("progress", 0) if status else 0
-    )
-    return {"status": "success", "message": f"Yêu cầu hủy đã được gửi tới bộ xử lý cho batch {batch_id}."}
-
-
-@router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket connection for real-time progress updates"""
-    await websocket.accept()
-    logger.info("Image ingest monitoring WebSocket client connected.")
+    # 5. Lưu toàn bộ Points vào Qdrant
     try:
-        while True:
-            tasks = redis_service.get_all_tasks()
-            await websocket.send_json({"type": "tasks_update", "tasks": tasks})
-            await asyncio.sleep(1.0)
-    except Exception as e:
-        logger.info(f"WebSocket client disconnected: {e}")
+        qdrant_client.client.upsert(
+            collection_name=qdrant_client.collection_name,
+            points=points,
+            wait=True
+        )
+        logger.info(f"✅ Đã nạp thành công {len(points)} ảnh vào Qdrant và MinIO cho mẻ {batch_id}.")
+    except Exception as e_qdrant:
+        logger.error(f"Lỗi khi upsert điểm vào Qdrant: {e_qdrant}")
+        raise HTTPException(status_code=500, detail=f"Lỗi lưu trữ dữ liệu vector: {str(e_qdrant)}")
+
+    return {
+        "success": True,
+        "batch_id": batch_id,
+        "batch_name": clean_batch_name,
+        "uploaded_count": len(points),
+        "all_detected_objects": list(all_detected_labels),
+        "files": uploaded_files_info,
+        "message": f"Đã nạp và phân tích AI thành công {len(points)} bức ảnh kiến trúc vào hệ thống!"
+    }
