@@ -1,196 +1,591 @@
-import os
-import requests
+"""
+Tải ảnh và metadata kiến trúc Việt Nam từ Wikimedia Commons qua PetScan,
+đồng thời lọc và kiểm tra chất lượng ảnh (trùng lặp, kích thước, tỉ lệ).
+
+Cách dùng:
+    python download_commons_images.py               # Tải theo LIMIT mặc định
+    python download_commons_images.py --limit 200   # Tải số lượng ảnh chỉ định
+    python download_commons_images.py --full        # Tải toàn bộ danh sách
+    python download_commons_images.py --check-only  # Chỉ kiểm tra chất lượng ảnh hiện có
+"""
+
+import argparse
+import csv
+import io
 import json
-import time
-import sys
-from urllib.parse import unquote
-
-# Đảm bảo in tiếng Việt và emoji không bị lỗi trên Windows console
-if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
-
-
-# URL của bạn (đã thêm format=json)
-PETSCAN_URL = "https://petscan.wmcloud.org/?language=commons&project=wikimedia&depth=3&categories=Architecture+of+Vietnam&ns%5B6%5D=1&format=json&doit=1"
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "vietnam_architecture")
-
-def get_petscan_results():
-    print("⏳ Đang tải danh sách ảnh từ PetScan...")
-    headers = {'User-Agent': 'KIS-Architect/1.0 (Contact: myemail@example.com)'}
-    response = requests.get(PETSCAN_URL, headers=headers)
-    response.raise_for_status()
-    data = response.json()
-    
-    try:
-        # Lấy danh sách các trang (pages) từ JSON của PetScan
-        pages = data['*'][0]['a']['*']
-        titles = [page['title'] for page in pages if page.get('nstext') == 'File']
-        print(f"✅ Đã tìm thấy {len(titles)} tệp ảnh kiến trúc Việt Nam.")
-        return titles
-    except Exception as e:
-        print(f"❌ Lỗi khi phân tích JSON từ PetScan: {e}")
-        return []
-
-def is_valid_image(filepath):
-    if not os.path.exists(filepath):
-        return False
-    # Kiểm tra kích thước và nội dung xem có phải trang lỗi HTML không
-    if os.path.getsize(filepath) < 4096:
-        with open(filepath, 'rb') as f:
-            header = f.read(50)
-            if b'<!DOCTYPE' in header or b'<html' in header or b'Error' in header:
-                return False
-    return True
-
+import os
 import re
+import sys
+import time
+
+import imagehash
+import requests
+from PIL import Image
+
+# Đảm bảo mã hóa UTF-8 trên Windows console
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
+# --- Cấu hình ---
+
+PETSCAN_URL = (
+    "https://petscan.wmcloud.org/?language=commons&project=wikimedia&depth=3"
+    "&categories=Architecture+of+Vietnam&ns%5B6%5D=1&format=json&doit=1"
+)
+OUTPUT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "vietnam_architecture",
+)
+
+USER_AGENT = "KIS-Architect/1.0 (student research project)"
+
+LIMIT = None              # Số lượng ảnh tải mặc định (None: tải toàn bộ)
+BATCH_SIZE = 50         # Tối đa số tiêu đề trong mỗi request API
+TARGET_SIZE = 640       # Cạnh dài nhất sau khi resize
+THUMB_WIDTH = 960       # Chiều rộng thumbnail lấy từ Wikimedia
+DOWNLOAD_DELAY = 3      # Giây nghỉ giữa các lần tải ảnh
+MAX_RETRIES = 5
+API_DELAY = 1.0         # Giây nghỉ giữa các lượt gọi API metadata
+
+# Ngưỡng kiểm tra chất lượng ảnh
+MIN_SHORT_SIDE = 224    # Cạnh ngắn tối thiểu
+MAX_ASPECT = 2.5        # Tỉ lệ cạnh tối đa
+DUP_DISTANCE = 4        # Ngưỡng khoảng cách Hamming của pHash để tính trùng lặp
+
+COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+
+ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".gif"}
+
+# Lọc bỏ các category kỹ thuật hoặc bản quyền không mô tả nội dung
+NOISE_CATEGORY = re.compile(
+    r"(taken with|photographs by|photos by|uploaded|wiki loves|quality images|"
+    r"featured pictures|valued images|pages with|files with|files by|media needing|"
+    r"media with|self-published|license|cc-by|cc-zero|pd-|gfdl|"
+    r"images by|images from|flickr|panoramio|author|user:)",
+    re.IGNORECASE,
+)
+
+RESAMPLE = getattr(Image, "Resampling", Image).BICUBIC
+
+session = requests.Session()
+session.headers["User-Agent"] = USER_AGENT
+
+DOWNLOAD_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://commons.wikimedia.org/",
+}
+
+
+# --- Tiện ích ---
+
+def strip_prefix(text, prefix):
+    return text[len(prefix):] if text.startswith(prefix) else text
+
 
 def clean_html(raw_html):
-    """Loại bỏ thẻ HTML và chuẩn hóa khoảng trắng trong văn bản mô tả"""
+    """Loại bỏ thẻ HTML và chuẩn hóa khoảng trắng."""
     if not raw_html:
         return ""
-    cleantext = re.sub(r'<.*?>', ' ', str(raw_html))
-    return ' '.join(cleantext.split())
+    text = re.sub(r"<.*?>", " ", str(raw_html))
+    return " ".join(text.split())
 
-def download_images(titles, limit=5000):
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    print(f"📂 Ảnh và Metadata sẽ được lưu vào: {OUTPUT_DIR}")
-    
-    api_url = "https://commons.wikimedia.org/w/api.php"
-    api_headers = {'User-Agent': 'KIS-Architect/1.0 (Contact: student@university.edu)'}
-    download_headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://commons.wikimedia.org/'
-    }
-    
-    batch_size = 50
-    downloaded = 0
-    
-    for i in range(0, min(len(titles), limit * 3), batch_size):
-        if downloaded >= limit:
-            break
-            
-        chunk_titles = titles[i:i + batch_size]
-        query_titles = "|".join([f"File:{t}" for t in chunk_titles])
-        
-        params = {
-            "action": "query",
-            "titles": query_titles,
-            "prop": "imageinfo|categories",
-            "iiprop": "url|extmetadata",
-            "cllimit": 50,
-            "iiurlwidth": 800,  # Wikimedia khuyến nghị tải qua thumburl (800px)
-            "format": "json"
-        }
-        
+
+def safe_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def safe_basename(title, pageid):
+    """Tạo tên tệp an toàn gắn pageid để tránh trùng lặp."""
+    base = os.path.splitext(title)[0]
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", base).replace(" ", "_")
+    return f"{base[:120]}_{pageid}"
+
+
+def is_noise_category(name):
+    return bool(NOISE_CATEGORY.search(name))
+
+
+def request_with_retry(url, params=None, timeout=30, headers=None):
+    """GET kèm thử lại khi lỗi mạng, rate limit (429) hoặc lỗi 5xx."""
+    req_headers = headers if headers is not None else session.headers
+    for attempt in range(1, MAX_RETRIES + 1):
         try:
-            res = requests.get(api_url, params=params, headers=api_headers, timeout=20)
-            res.raise_for_status()
-            pages = res.json().get('query', {}).get('pages', {})
-            
-            # Lưu trữ thông tin từng tệp: URL & Metadata
-            file_data_map = {}
-            for pid, pinfo in pages.items():
-                raw_title = pinfo.get('title', '').replace('File:', '').strip()
-                
-                # Trích xuất categories
-                categories = []
-                for cat in pinfo.get('categories', []):
-                    cat_name = cat.get('title', '').replace('Category:', '').strip()
-                    # Bỏ qua các danh mục kỹ thuật nội bộ của Wikimedia
-                    if not any(cat_name.startswith(p) for p in ['CC-', 'Files', 'Self-published', 'Assumed', 'PD-']):
-                        categories.append(cat_name)
-                
-                # Trích xuất imageinfo & extmetadata
-                img_url = None
-                metadata = {}
-                if 'imageinfo' in pinfo and len(pinfo['imageinfo']) > 0:
-                    info = pinfo['imageinfo'][0]
-                    img_url = info.get('thumburl') or info.get('url')
-                    ext = info.get('extmetadata', {})
-                    
-                    # Bóc tách các trường giá trị cốt lõi
-                    title_val = ext.get('ObjectName', {}).get('value') or raw_title.replace('_', ' ')
-                    desc_val = clean_html(ext.get('ImageDescription', {}).get('value') or '')
-                    date_val = clean_html(ext.get('DateTimeOriginal', {}).get('value') or ext.get('DateTime', {}).get('value') or '')
-                    artist_val = clean_html(ext.get('Artist', {}).get('value') or '')
-                    lat_val = ext.get('GPSLatitude', {}).get('value')
-                    lon_val = ext.get('GPSLongitude', {}).get('value')
-                    
-                    metadata = {
-                        "monument_name": title_val,
-                        "description": desc_val,
-                        "categories": categories,
-                        "date": date_val,
-                        "artist": artist_val,
-                        "latitude": float(lat_val) if lat_val else None,
-                        "longitude": float(lon_val) if lon_val else None,
-                        "source_url": info.get('descriptionurl') or f"https://commons.wikimedia.org/wiki/File:{raw_title}"
-                    }
-                
-                file_data_map[raw_title] = {
-                    "url": img_url,
-                    "metadata": metadata
-                }
-            
-            for title in chunk_titles:
-                if downloaded >= limit:
-                    break
-                    
-                img_name = unquote(title).replace(" ", "_").replace("/", "-")
-                base_name = os.path.splitext(img_name)[0]
-                img_filepath = os.path.join(OUTPUT_DIR, img_name)
-                meta_filepath = os.path.join(OUTPUT_DIR, f"{base_name}.json")
-                
-                finfo = file_data_map.get(title.replace('_', ' ')) or file_data_map.get(title) or {}
-                img_url = finfo.get('url')
-                metadata = finfo.get('metadata') or {}
-                
-                # Ghi tệp metadata JSON nếu có thông tin
-                if metadata:
-                    try:
-                        with open(meta_filepath, 'w', encoding='utf-8') as mf:
-                            json.dump(metadata, mf, ensure_ascii=False, indent=2)
-                    except Exception as me:
-                        print(f"⚠️ Không thể ghi metadata cho {img_name}: {me}")
-                
-                # Bỏ qua nếu ảnh đã tồn tại và hợp lệ
-                if is_valid_image(img_filepath):
-                    print(f"⏭️ {img_name} (Ảnh & Metadata đã sẵn sàng)")
-                    downloaded += 1
+            resp = session.get(url, params=params, timeout=timeout, headers=req_headers)
+        except requests.RequestException as e:
+            wait = 5 * attempt
+            print(f"[Cảnh báo] Lỗi mạng ({e.__class__.__name__}), thử lại sau {wait}s...", flush=True)
+            time.sleep(wait)
+            continue
+
+        if resp.status_code == 429 or resp.status_code >= 500:
+            retry_after = resp.headers.get("Retry-After", "")
+            if retry_after.isdigit():
+                wait = max(int(retry_after), 5)
+                print(f"[Cảnh báo] HTTP {resp.status_code} (Server yêu cầu Retry-After: {retry_after}s), chờ {wait}s...", flush=True)
+            else:
+                wait = 5 * attempt
+                print(f"[Cảnh báo] HTTP {resp.status_code}, chờ {wait}s rồi thử lại...", flush=True)
+            time.sleep(wait)
+            continue
+
+        return resp
+    return None
+
+
+def get_json(url, params):
+    resp = request_with_retry(url, params)
+    if resp is None:
+        return None
+    try:
+        return resp.json()
+    except ValueError:
+        print(f"[Cảnh báo] Phản hồi không phải JSON từ {url}")
+        return None
+
+
+# --- PetScan ---
+
+def get_petscan_results():
+    print("Đang tải danh sách ảnh từ PetScan...")
+    resp = request_with_retry(PETSCAN_URL, timeout=300)
+    if resp is None or resp.status_code != 200:
+        print("[Lỗi] Không tải được kết quả PetScan.")
+        return []
+
+    try:
+        pages = resp.json()["*"][0]["a"]["*"]
+    except (ValueError, KeyError, IndexError) as e:
+        print(f"[Lỗi] Phân tích JSON từ PetScan thất bại: {e}")
+        return []
+
+    titles = [p["title"].replace("_", " ") for p in pages if p.get("nstext") == "File"]
+    images = [t for t in titles if os.path.splitext(t)[1].lower() in ALLOWED_EXT]
+    print(f"PetScan: Tìm thấy {len(titles)} tệp ({len(images)} ảnh raster).")
+    return images
+
+
+# --- Wikimedia Commons API ---
+
+def fetch_file_info(titles):
+    """Lấy URL ảnh, extmetadata và categories (loại trừ category ẩn) theo nhóm."""
+    base = {
+        "action": "query",
+        "format": "json",
+        "formatversion": "2",
+        "titles": "|".join(f"File:{t}" for t in titles),
+        "prop": "imageinfo|categories",
+        "iiprop": "url|extmetadata",
+        "iiurlwidth": THUMB_WIDTH,
+        "iiextmetadatalanguage": "en",
+        "cllimit": "max",
+        "clshow": "!hidden",
+    }
+    params = dict(base)
+    result = {}
+
+    while True:
+        data = get_json(COMMONS_API, params)
+        if data is None:
+            break
+
+        for page in data.get("query", {}).get("pages", []):
+            title = strip_prefix(page.get("title", ""), "File:")
+            entry = result.setdefault(title, {"pageid": page.get("pageid"), "categories": []})
+
+            if page.get("missing"):
+                entry["missing"] = True
+
+            if page.get("imageinfo"):
+                info = page["imageinfo"][0]
+                entry["url"] = info.get("thumburl") or info.get("url")
+                entry["source_url"] = info.get("descriptionurl")
+                entry["ext"] = info.get("extmetadata", {})
+
+            for cat in page.get("categories", []):
+                name = strip_prefix(cat.get("title", ""), "Category:")
+                if name and not is_noise_category(name) and name not in entry["categories"]:
+                    entry["categories"].append(name)
+
+        if "continue" not in data:
+            break
+        params = {**base, **data["continue"]}
+
+    return result
+
+
+def fetch_structured_data(pageids):
+    """Lấy structured data của Commons: caption và depicts (P180)."""
+    ids = [f"M{pid}" for pid in pageids if pid]
+    out = {}
+
+    for i in range(0, len(ids), 50):
+        data = get_json(COMMONS_API, {
+            "action": "wbgetentities",
+            "ids": "|".join(ids[i:i + 50]),
+            "format": "json",
+        })
+        time.sleep(API_DELAY)
+        if data is None:
+            continue
+
+        for mid, entity in data.get("entities", {}).items():
+            if "missing" in entity:
+                continue
+
+            labels = entity.get("labels") or {}
+            statements = entity.get("statements") or {}
+            if not isinstance(labels, dict):
+                labels = {}
+            if not isinstance(statements, dict):
+                statements = {}
+
+            depicts = []
+            for st in statements.get("P180", []):
+                dv = st.get("mainsnak", {}).get("datavalue")
+                if dv and isinstance(dv.get("value"), dict) and "id" in dv["value"]:
+                    depicts.append(dv["value"]["id"])
+
+            out[int(mid[1:])] = {
+                "caption_en": labels.get("en", {}).get("value", ""),
+                "caption_vi": labels.get("vi", {}).get("value", ""),
+                "depicts_qids": depicts,
+            }
+
+    return out
+
+
+_qid_cache = {}
+
+
+def resolve_qids(qids):
+    """Đổi Q-id Wikidata thành tên tiếng Anh / tiếng Việt (có cache)."""
+    todo = [q for q in set(qids) if q not in _qid_cache]
+
+    for i in range(0, len(todo), 50):
+        data = get_json(WIKIDATA_API, {
+            "action": "wbgetentities",
+            "ids": "|".join(todo[i:i + 50]),
+            "props": "labels",
+            "languages": "en|vi",
+            "format": "json",
+        })
+        time.sleep(API_DELAY)
+        if data is None:
+            continue
+        for q, entity in data.get("entities", {}).items():
+            labels = entity.get("labels") or {}
+            _qid_cache[q] = {
+                "en": labels.get("en", {}).get("value", ""),
+                "vi": labels.get("vi", {}).get("value", ""),
+            }
+
+    return {q: _qid_cache.get(q, {"en": "", "vi": ""}) for q in qids}
+
+
+# --- Xử lý Metadata ---
+
+def build_metadata(title, info, sd, qlabels):
+    ext = info.get("ext", {})
+
+    def ev(key):
+        return clean_html(ext.get(key, {}).get("value", ""))
+
+    depicts_qids = sd.get("depicts_qids", [])
+    depicts = []
+    for q in depicts_qids:
+        lab = qlabels.get(q, {})
+        depicts.append(lab.get("en") or lab.get("vi") or q)
+
+    return {
+        # Thông tin phục vụ sinh caption & đối chiếu
+        "categories": info.get("categories", []),
+        "depicts": depicts,
+        "commons_caption_en": sd.get("caption_en", ""),
+        "commons_caption_vi": sd.get("caption_vi", ""),
+        "description": ev("ImageDescription"),
+        "monument_name": ev("ObjectName") or os.path.splitext(title)[0],
+
+        # Thông tin lưu trữ và bản quyền
+        "file_title": title,
+        "pageid": info.get("pageid"),
+        "depicts_qids": depicts_qids,
+        "date": ev("DateTimeOriginal") or ev("DateTime"),
+        "artist": ev("Artist"),
+        "license": ev("LicenseShortName"),
+        "license_url": ev("LicenseUrl"),
+        "latitude": safe_float(ev("GPSLatitude")),
+        "longitude": safe_float(ev("GPSLongitude")),
+        "source_url": info.get("source_url")
+        or f"https://commons.wikimedia.org/wiki/File:{title.replace(' ', '_')}",
+    }
+
+
+def meta_path_for(record):
+    base = os.path.splitext(record["image_file"])[0]
+    return os.path.join(OUTPUT_DIR, f"{base}.json")
+
+
+def save_metadata(record):
+    with open(meta_path_for(record), "w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
+
+
+# --- Xử lý Ảnh ---
+
+def is_valid_image(path):
+    if not os.path.exists(path) or os.path.getsize(path) < 100:
+        return False
+    try:
+        with Image.open(path) as im:
+            im.verify()
+        return True
+    except Exception:
+        return False
+
+
+def save_resized_png(content, path):
+    """Mở ảnh, chuyển RGB (xử lý nền trong suốt nếu có), resize và lưu PNG."""
+    try:
+        img = Image.open(io.BytesIO(content))
+        img.load()
+    except Exception:
+        return False
+
+    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        img = img.convert("RGBA")
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        background.paste(img, mask=img.split()[-1])
+        img = background
+    else:
+        img = img.convert("RGB")
+
+    img.thumbnail((TARGET_SIZE, TARGET_SIZE), RESAMPLE)
+    img.save(path, "PNG", optimize=True)
+    return True
+
+
+# --- Tải Ảnh & Metadata ---
+
+def download_all(titles, limit=LIMIT):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    limit = len(titles) if limit is None else min(limit, len(titles))
+    mode = "toàn bộ" if limit == len(titles) else "giới hạn"
+    print(f"Thư mục lưu: {OUTPUT_DIR}")
+    print(f"Chế độ {mode}: {limit}/{len(titles)} ảnh")
+
+    done, failed = 0, 0
+    records = []
+
+    for i in range(0, len(titles), BATCH_SIZE):
+        if done >= limit:
+            break
+
+        chunk = titles[i:i + BATCH_SIZE]
+        infos = fetch_file_info(chunk)
+        pageids = [v["pageid"] for v in infos.values() if v.get("pageid")]
+        sd_map = fetch_structured_data(pageids)
+        qlabels = resolve_qids({q for sd in sd_map.values() for q in sd["depicts_qids"]})
+
+        for title in chunk:
+            if done >= limit:
+                break
+
+            info = infos.get(title)
+            if not info or info.get("missing") or not info.get("url"):
+                print(f"[Bỏ qua] {title} (không có thông tin ảnh)")
+                continue
+
+            pageid = info["pageid"]
+            meta = build_metadata(title, info, sd_map.get(pageid, {}), qlabels)
+
+            base = safe_basename(title, pageid)
+            img_path = os.path.join(OUTPUT_DIR, f"{base}.png")
+            meta["image_file"] = os.path.basename(img_path)
+
+            if is_valid_image(img_path):
+                print(f"[Đã có] {base}.png")
+            else:
+                print(f"[{done + 1}/{limit}] Đang tải {title}...", flush=True)
+                resp = request_with_retry(info["url"], timeout=60, headers=DOWNLOAD_HEADERS)
+                if resp is None or resp.status_code != 200:
+                    code = resp.status_code if resp is not None else "hết lượt thử"
+                    print(f"[Lỗi] Không tải được {title} ({code})")
+                    failed += 1
                     continue
-                elif os.path.exists(img_filepath):
-                    os.remove(img_filepath)
-                
-                if not img_url:
+                if not save_resized_png(resp.content, img_path):
+                    print(f"[Lỗi] {title} không phải ảnh hợp lệ")
+                    failed += 1
                     continue
-                    
-                try:
-                    print(f"[{downloaded+1}/{limit}] ⬇️ Đang tải {img_name}...")
-                    img_resp = requests.get(img_url, headers=download_headers, timeout=30)
-                    if img_resp.status_code == 200 and not img_resp.content.startswith(b'<!DOCTYPE') and not img_resp.content.startswith(b'<html'):
-                        with open(img_filepath, 'wb') as f:
-                            f.write(img_resp.content)
-                        downloaded += 1
-                        time.sleep(0.2)
-                    elif img_resp.status_code == 429:
-                        print(f"⚠️ Wikimedia 429 (Rate limited) khi tải {img_name}, chờ 2 giây...")
-                        time.sleep(2)
-                    else:
-                        print(f"⚠️ Không tải được {img_name} (HTTP {img_resp.status_code})")
-                except Exception as e:
-                    print(f"❌ Lỗi khi tải dữ liệu ảnh {img_name}: {e}")
-                    
+                time.sleep(DOWNLOAD_DELAY)
+
+            save_metadata(meta)
+            records.append(meta)
+            done += 1
+
+    n = len(records) or 1
+    has_cat = sum(1 for r in records if r["categories"])
+    has_dep = sum(1 for r in records if r["depicts"])
+    has_cap = sum(1 for r in records if r["commons_caption_en"] or r["commons_caption_vi"])
+    has_desc = sum(1 for r in records if r["description"])
+
+    print("\n--- Thống kê tải ---")
+    print(f"   Tải thành công : {done}")
+    print(f"   Thất bại       : {failed}")
+    print(f"   Có categories  : {has_cat} ({has_cat / n:.0%})")
+    print(f"   Có depicts     : {has_dep} ({has_dep / n:.0%})")
+    print(f"   Có caption     : {has_cap} ({has_cap / n:.0%})")
+    print(f"   Có description : {has_desc} ({has_desc / n:.0%})")
+
+    return records
+
+
+def load_existing_records():
+    """Đọc metadata của các ảnh đã tải (dùng cho --check-only)."""
+    records = []
+    if not os.path.isdir(OUTPUT_DIR):
+        return records
+    for name in sorted(os.listdir(OUTPUT_DIR)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(OUTPUT_DIR, name), encoding="utf-8") as f:
+                record = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if "image_file" in record and os.path.exists(os.path.join(OUTPUT_DIR, record["image_file"])):
+            records.append(record)
+    return records
+
+
+# --- Kiểm Tra Chất Lượng ---
+
+def check_quality(records):
+    """Kiểm tra từng ảnh: kích thước, tỉ lệ, trùng lặp và gắn cờ quality_flags."""
+    print(f"\nĐang kiểm tra chất lượng {len(records)} ảnh...")
+    hashes = {}
+
+    for i, r in enumerate(records, 1):
+        r["quality_flags"] = []
+        r["dup_of"] = ""
+        path = os.path.join(OUTPUT_DIR, r["image_file"])
+        try:
+            with Image.open(path) as im:
+                w, h = im.size
+                phash = imagehash.phash(im)
         except Exception as e:
-            print(f"❌ Lỗi khi truy vấn thông tin ảnh từ API: {e}")
-            time.sleep(2)
-            
-    print(f"🎯 Đã hoàn thành xử lý {downloaded}/{limit} ảnh và metadata.")
+            r["quality_flags"].append(f"loi_doc_file ({e.__class__.__name__})")
+            continue
+
+        r["width"], r["height"] = w, h
+        r["aspect"] = round(max(w, h) / min(w, h), 2)
+        r["phash"] = str(phash)
+        hashes[id(r)] = int(str(phash), 16)
+
+        if min(w, h) < MIN_SHORT_SIDE:
+            r["quality_flags"].append("qua_nho")
+        if r["aspect"] > MAX_ASPECT:
+            r["quality_flags"].append("ti_le_dai")
+
+        if i % 500 == 0:
+            print(f"   ... {i}/{len(records)}", flush=True)
+
+    # Giữ lại ảnh có độ phân giải cao nhất trong nhóm trùng lặp
+    candidates = [r for r in records if id(r) in hashes]
+    candidates.sort(key=lambda r: r["width"] * r["height"], reverse=True)
+    kept = []
+    for r in candidates:
+        for k in kept:
+            if bin(hashes[id(r)] ^ hashes[id(k)]).count("1") <= DUP_DISTANCE:
+                r["dup_of"] = k["image_file"]
+                r["quality_flags"].append("trung_lap")
+                break
+        else:
+            kept.append(r)
+
+    for r in records:
+        r["is_clean"] = not r["quality_flags"]
+        save_metadata(r)
+
+
+def write_outputs(records):
+    """Ghi metadata_all.jsonl, quality_report.csv, clean_list.txt và in thống kê."""
+    all_path = os.path.join(OUTPUT_DIR, "metadata_all.jsonl")
+    report_path = os.path.join(OUTPUT_DIR, "quality_report.csv")
+    clean_path = os.path.join(OUTPUT_DIR, "clean_list.txt")
+
+    with open(all_path, "w", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    fields = ["image_file", "width", "height", "aspect", "phash", "dup_of", "flags"]
+    with open(report_path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for r in sorted(records, key=lambda r: r["image_file"]):
+            row = {k: r.get(k, "") for k in fields}
+            row["flags"] = ";".join(r.get("quality_flags", []))
+            writer.writerow(row)
+
+    clean = sorted(r["image_file"] for r in records if r.get("is_clean"))
+    with open(clean_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(clean))
+
+    def count(flag):
+        return sum(1 for r in records if any(x.startswith(flag) for x in r.get("quality_flags", [])))
+
+    print("\n--- Thống kê chất lượng ---")
+    print(f"   Tổng số ảnh    : {len(records)}")
+    print(f"   Trùng lặp      : {count('trung_lap')}")
+    print(f"   Quá nhỏ        : {count('qua_nho')}")
+    print(f"   Tỉ lệ quá dài  : {count('ti_le_dai')}")
+    print(f"   Lỗi đọc file   : {count('loi_doc_file')}")
+    print(f"   Đạt yêu cầu    : {len(clean)}")
+    print(f"\n   Metadata tổng hợp : {all_path}")
+    print(f"   Báo cáo chất lượng: {report_path}")
+    print(f"   Danh sách sạch    : {clean_path}")
+
+
+# --- Chương trình chính ---
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Tải ảnh và metadata từ Wikimedia Commons")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--full", action="store_true", help="Tải toàn bộ danh sách PetScan")
+    group.add_argument("--limit", type=int, help="Số lượng ảnh muốn tải")
+    group.add_argument("--check-only", action="store_true",
+                       help="Không tải, chỉ kiểm tra chất lượng ảnh hiện có")
+    args = parser.parse_args()
+
+    if args.limit is not None and args.limit <= 0:
+        parser.error("--limit phải lớn hơn 0")
+    return args
+
 
 if __name__ == "__main__":
-    titles = get_petscan_results()
-    if titles:
-        # Tải thử 50 tấm đầu tiên để làm dữ liệu mẫu
-        # Bạn có thể tăng biến limit=50 lên thành limit=500 hoặc len(titles) để tải toàn bộ
-        download_images(titles, limit=50)
-        print(f"🎉 Hoàn tất! Bạn có thể vào Web UI, chọn mục Nạp Kho Ảnh và chọn các tệp từ thư mục: {OUTPUT_DIR}")
+    args = parse_args()
+
+    if args.check_only:
+        records = load_existing_records()
+        if not records:
+            print(f"[Lỗi] Không tìm thấy ảnh nào trong {OUTPUT_DIR}")
+            sys.exit(1)
+    else:
+        limit = None if args.full else (args.limit if args.limit is not None else LIMIT)
+        titles = get_petscan_results()
+        if not titles:
+            sys.exit(1)
+        records = download_all(titles, limit=limit)
+
+    if records:
+        check_quality(records)
+        write_outputs(records)
+        print(f"\nHoàn tất! Dữ liệu được lưu tại: {OUTPUT_DIR}")
