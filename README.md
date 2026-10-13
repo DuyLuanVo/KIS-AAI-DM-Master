@@ -1,89 +1,130 @@
-# 🏛️ KIS Architect - Kho Tư Liệu Kiến Trúc Việt Nam
+# KIS Architect: Kho ảnh kiến trúc Việt Nam
 
-Hệ thống **KIS Architect (Kho Tư Liệu Kiến Trúc Việt Nam)** là giải pháp tìm kiếm và quản lý kho tư liệu hình ảnh công trình kiến trúc Việt Nam dựa trên nội dung và ngữ nghĩa (Content-Based Image Retrieval - CBIR).
+Hệ thống tìm kiếm kho ảnh công trình kiến trúc Việt Nam theo hai cách:
 
-Hệ thống tích hợp mô hình AI đa phương thức **CLIP (ViT-B/32)** cho phép tìm kiếm theo văn bản mô tả (Text-to-Image) hoặc hình ảnh tương đồng (Image-to-Image), kết hợp với mô hình nhận diện cấu kiện kiến trúc mở **YOLO-World** cùng cơ sở dữ liệu vector **Qdrant** và hệ thống lưu trữ **MinIO S3**.
+| Người dùng tìm bằng | Hệ thống xử lý |
+|---|---|
+| **Hình ảnh** (chọn file, kéo thả, dán Ctrl+V) | Mã hóa ảnh bằng **CLIP ViT-B/32** rồi so cosine với vector ảnh trong kho → trả về ảnh tương đồng |
+| **Mô tả bằng chữ** | **Truy vấn trên caption** của từng ảnh: (1) so ngữ nghĩa câu truy vấn với vector caption (sentence-transformers), (2) so từ khóa bằng BM25 trên chỉ mục full-text của caption, rồi trộn hai danh sách bằng Reciprocal Rank Fusion. Từ khớp được tô vàng trong kết quả |
 
-> 📖 **Xem chi tiết thiết kế hệ thống chuyên sâu tại:** [SYSTEM_ARCHITECTURE.md](file:///d:/Study/Postgrad/HK2/AAI&DM/KIS/SYSTEM_ARCHITECTURE.md)  
-> 📑 **Xem bản thảo đề tài nghiên cứu tại:** [PROJECT_PROPOSAL.md](file:///d:/Study/Postgrad/HK2/AAI&DM/KIS/PROJECT_PROPOSAL.md)
-
----
-
-## 🛠️ Kiến Trúc Hệ Thống Tinh Gọn
+Mỗi ảnh trong Qdrant có **2 vector có tên** (`image`, `caption`) và payload chứa caption gốc cùng metadata (tên công trình, tác giả, giấy phép, nguồn Wikimedia…). Caption lấy từ `scripts/compare_output/captions_final.csv` (kết quả so sánh caption Qwen và Gemma 4).
 
 ```mermaid
 flowchart LR
-    User([Người dùng / Web UI]) <-->|HTTP / REST API| FastAPI[FastAPI Backend Server]
-    
-    subgraph AI_Layer ["Cụm Mô Hình AI"]
-        CLIP[CLIP ViT-B/32<br>512-dim Vector]
-        YOLO[YOLO-World<br>Cấu kiện kiến trúc]
-    end
-    
-    subgraph Storage_Layer ["Tầng Lưu Trữ & Tra Cứu"]
-        Qdrant[(Qdrant Vector DB<br>Vector HNSW & Payload)]
-        MinIO[(MinIO Object Storage<br>Ảnh gốc & Presigned URL)]
-    end
-    
-    FastAPI <--> AI_Layer
-    FastAPI <--> Storage_Layer
+    UI[Giao diện web] -->|ảnh| A[/search/image/]
+    UI -->|mô tả| T[/search/text/]
+    UI -->|ảnh + caption| U[/ingest/upload/]
+    A --> CLIP[CLIP image encoder] --> QI[(Qdrant: vector image)]
+    T --> ST[Sentence encoder] --> QC[(Qdrant: vector caption)]
+    T --> KW[BM25 trên caption full-text] --> QC
+    U --> CLIP & ST --> Q[(Qdrant)]
+    U --> S[(MinIO / thư mục local)]
 ```
 
 ---
 
-## 🚀 Hướng Dẫn Khởi Chạy
+## Chạy hệ thống
 
-### 1. Khởi chạy cụm dịch vụ CSDL (Docker)
-Khởi động **Qdrant** và **MinIO** ở chế độ nền:
-```bash
-docker-compose up -d
-```
-* **Qdrant Vector DB:** `http://localhost:6333/dashboard`
-* **MinIO Console:** `http://localhost:9001` (User/Pass: `minioadmin` / `minioadmin`)
+### 1. Cài thư viện
 
-### 2. Cài đặt thư viện Python
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Khởi chạy Backend Server (FastAPI)
+### 2. Khởi động Qdrant và MinIO
+
+```bash
+docker-compose up -d qdrant minio mc
+```
+
+Không dùng Docker? Tạo `backend/.env` với `QDRANT_MODE=local` và `STORAGE_BACKEND=local` (xem `backend/env.example`). Khi đó Qdrant lưu vào thư mục `qdrant_local/`, ảnh dataset đọc trực tiếp từ `data/vietnam_architecture/`.
+
+### 3. Lập chỉ mục ảnh + caption (chạy một lần)
+
+```bash
+python scripts/index_dataset.py --limit 200   # thử nhanh 200 ảnh
+python scripts/index_dataset.py               # toàn bộ 7.756 ảnh, tự bỏ qua ảnh đã có
+```
+
+* Đọc `scripts/compare_output/captions_final.csv`; ảnh được tìm **theo tên file** trong `data/vietnam_architecture/` (không phụ thuộc đường dẫn cũ trong CSV), metadata đọc từ file `.json` cùng tên.
+* `--recreate`: xóa collection và nạp lại (bắt buộc khi đổi model nhúng).
+* `--yolo`: nhận diện thêm cấu kiện kiến trúc bằng YOLO-World để lọc theo cấu kiện (chậm).
+* Lần đầu chạy sẽ tải CLIP (~340 MB) và all-mpnet-base-v2 (~420 MB; đã có sẵn nếu từng chạy `compare_captions.py`).
+
+### 4. Chạy backend (đồng thời phục vụ giao diện)
+
 ```bash
 cd backend
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --port 8000
 ```
-* **API Documentation (Swagger UI):** `http://localhost:8000/docs`
 
-### 4. Khởi chạy Giao diện Frontend
+* Giao diện: **http://localhost:8000/**
+* Tài liệu API: http://localhost:8000/docs
+
+> Giao diện tĩnh vẫn mở được bằng `python -m http.server 5500` trong thư mục `frontend/`; khi đó nó tự gọi API ở cổng 8000.
+
+---
+
+## Sử dụng
+
+**Tìm kiếm**
+* *Bằng mô tả*: gõ câu tiếng Anh (caption là tiếng Anh), ví dụ `red brick Cham tower with a stepped roof`. Có thể chọn chỉ so ngữ nghĩa hoặc chỉ so từ khóa.
+* *Bằng hình ảnh*: kéo thả, chọn file hoặc dán ảnh (Ctrl+V ở bất kỳ đâu trên trang tìm kiếm).
+* Bấm một ảnh để xem caption đầy đủ, metadata, nguồn gốc và **Tìm ảnh tương đồng** (dùng lại vector đã lưu, không mã hóa lại).
+* Lọc theo nguồn (bộ dữ liệu gốc / ảnh tải lên) và theo cấu kiện (khi đã chạy YOLO).
+
+**Thêm ảnh vào kho** (mỗi ảnh bắt buộc có caption)
+1. Chọn hoặc kéo thả nhiều ảnh. Có thể chọn kèm file `.txt` cùng tên làm caption.
+2. Gắn caption: gõ trực tiếp từng ô, hoặc nhập file CSV/JSON/JSONL (ghép theo tên ảnh). Ảnh thiếu caption được đánh dấu đỏ; nút nạp chỉ bật khi mọi ảnh đều có caption.
+3. Thông tin chung (tùy chọn): tên bộ sưu tập, thể loại, mô tả, bật YOLO-World.
+4. Sau khi nạp: xem các ảnh vừa nạp, hoặc **hoàn tác** cả lần nạp.
+
+Định dạng CSV caption giống `captions_final.csv`:
+
+```csv
+filepath,caption
+chua_mot_cot.jpg,"A small wooden pagoda on a single stone pillar in a lotus pond."
+```
+
+---
+
+## API chính
+
+| Method | Đường dẫn | Mô tả |
+|---|---|---|
+| POST | `/api/v1/search/text` | `{"query", "limit", "mode": "hybrid\|semantic\|keyword", "source", "object_labels"}` |
+| POST | `/api/v1/search/image` | `{"image_base64", "limit", ...bộ lọc}` |
+| POST | `/api/v1/search/image/upload` | multipart `file` (tiện thử trên Swagger) |
+| GET | `/api/v1/images/similar?key=` | Ảnh tương đồng với một ảnh trong kho |
+| GET | `/api/v1/images/list?batch_id=` | Duyệt ảnh của một lần tải lên |
+| POST | `/api/v1/ingest/upload` | multipart `files[]` + `captions` (JSON mảng hoặc `{tên_file: caption}`) + `batch_name`, `categories`, `description`, `detect_objects` |
+| DELETE | `/api/v1/ingest/batches/{batch_id}` | Hoàn tác một lần tải lên |
+| GET | `/api/v1/stats` | Số ảnh, model đang dùng, nhãn cấu kiện |
+| GET | `/media/{key}` | Ảnh gốc (file local hoặc chuyển hướng presigned URL MinIO) |
+
+## Test
+
 ```bash
-cd frontend
-python -m http.server 5500
+cd backend
+python -m pytest -q
 ```
-Truy cập: **`http://localhost:5500`** trên trình duyệt để sử dụng hệ thống.
 
----
+Test chạy với Qdrant in-memory và embedder `lite` (không cần Docker, GPU hay tải model).
 
-## 📥 Quy Trình Thu Thập & Lập Chỉ Mục Dữ Liệu (Offline Pipeline)
+## Cấu trúc mã nguồn
 
-1. **Thu thập ảnh kiến trúc từ Wikimedia Commons:**
-   ```bash
-   python scripts/download_commons_images.py
-   ```
-   * Tự động tải ảnh chất lượng cao và siêu dữ liệu (tên di tích, tọa độ GPS, mô tả) vào thư mục `data/vietnam_architecture/`.
-
-2. **Lập chỉ mục và nạp vào MinIO & Qdrant:**
-   ```bash
-   python scripts/reindex_with_metadata.py
-   ```
-   * Tải ảnh gốc lên MinIO bucket `kis-keyframes`.
-   * Trích xuất vector 512 chiều bằng CLIP.
-   * Phát hiện các cấu kiện kiến trúc bằng YOLO-World (*bell tower, stone statue, wooden column, curved roof, temple gate*).
-   * Lưu toàn bộ vector và siêu dữ liệu vào Qdrant.
-
----
-
-## 💡 Hướng Dẫn Sử Dụng Các Tính Năng
-
-* **🔍 Tìm kiếm bằng mô tả (Text-to-Image):** Nhập câu mô tả không gian kiến trúc bằng tiếng Anh (ví dụ: *"Traditional Vietnamese temple architecture under sunlight"* hoặc *"Modern tropical house facade with wooden louvers"*).
-* **🖼️ Tìm kiếm bằng ảnh mẫu (Image-to-Image):** Chọn file ảnh hoặc **nhấn `Ctrl+V / Cmd+V` để dán ảnh trực tiếp từ clipboard**.
-* **🏛️ Lọc theo cấu kiện kiến trúc (YOLO-World Filter):** Bấm chọn nhanh các nhãn gợi ý (*curved roof, wooden column, stone statue, temple gate, bell tower*) để lọc chính xác công trình có chứa cấu kiện mong muốn.
-* **📋 Xem chi tiết công trình:** Nhấp vào bất kỳ bức ảnh nào để mở modal chi tiết: xem ảnh gốc phân giải cao, tên công trình, bài viết mô tả di tích, tọa độ địa lý, tác giả và cấu kiện AI nhận diện được.
+```
+backend/app/
+  config.py                  cấu hình (đọc backend/.env)
+  api/endpoints/search.py    tìm bằng ảnh, bằng mô tả (caption), ảnh tương đồng
+  api/endpoints/ingest.py    nạp ảnh + caption, hoàn tác
+  api/endpoints/media.py     phục vụ ảnh
+  database/vector_store.py   Qdrant: 2 vector có tên, BM25 trên caption
+  services/embedders.py      CLIP / sentence-transformers (và bản lite cho test)
+  services/indexer.py        dựng payload + lập chỉ mục dùng chung
+  services/storage.py        MinIO hoặc thư mục local
+  services/yolo_service.py   YOLO-World (tùy chọn)
+frontend/                    index.html, styles.css, script.js
+scripts/index_dataset.py     nạp captions_final.csv vào Qdrant
+scripts/compare_captions.py  so sánh caption 2 VLM, sinh captions_final.csv
+```

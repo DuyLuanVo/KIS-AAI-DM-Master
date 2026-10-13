@@ -1,27 +1,12 @@
 """
-API router configuration
+API router
 """
-from app.api.endpoints import health, video_search, image_ingest
 from fastapi import APIRouter
 
-# Create main API router
-api_router = APIRouter()
+from app.api.endpoints import health, ingest, media, search
 
-# Include endpoint routers
+api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
-api_router.include_router(
-    video_search.router,
-    prefix="/api/v1/videos",
-    tags=["video-search"]
-)
-# Add alias for architecture images search
-api_router.include_router(
-    video_search.router,
-    prefix="/api/v1/images",
-    tags=["image-search"]
-)
-api_router.include_router(
-    image_ingest.router,
-    prefix="/api/v1/images/ingest",
-    tags=["image-ingestion"]
-)
+api_router.include_router(search.router, prefix="/api/v1", tags=["search"])
+api_router.include_router(ingest.router, prefix="/api/v1/ingest", tags=["ingest"])
+api_router.include_router(media.router, tags=["media"])

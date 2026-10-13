@@ -1,978 +1,597 @@
-// Configuration
-const API_BASE_URL = window.location.hostname 
-    ? `${window.location.protocol}//${window.location.hostname}:8000` 
-    : 'http://localhost:8000';
-const GRID_SIZE = 20; // 5x4 grid
-const ITEMS_PER_PAGE = GRID_SIZE;
+/* KIS Architect · giao diện tìm kiếm và nạp ảnh */
+'use strict';
 
-// Global state
-let currentResults = [];
-let currentGroupedResults = [];
-let currentPage = 0;
-let currentQueries = [];
-let currentObjects = [];
-let searchMode = 'text'; // 'text' or 'image'
-let uploadedImageBase64 = null;
+// Khi giao diện được backend phục vụ (cổng 8000) thì gọi cùng origin; nếu mở bằng http.server/file:// thì gọi localhost:8000
+const API = window.KIS_API || (
+  location.protocol === 'file:' ? 'http://localhost:8000'
+    : (location.port && location.port !== '8000' ? `${location.protocol}//${location.hostname}:8000` : location.origin)
+);
+const PAGE = 24;
+const MIN_CAPTION = 10;
 
-// Carousel state
-let currentFrames = [];
-let currentFrameIndex = 0;
-let centerFrameIndex = 0;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mediaUrl = (u) => (u && !/^https?:/.test(u) ? API + u : u);
+const fmtNum = (n) => new Intl.NumberFormat('vi-VN').format(n);
 
-// DOM elements
-const queryInput = document.getElementById('queryInput');
-const objectInput = document.getElementById('objectInput');
-const imageInput = document.getElementById('imageInput');
-const imagePreview = document.getElementById('imagePreview');
-const textModeBtn = document.getElementById('textModeBtn');
-const imageModeBtn = document.getElementById('imageModeBtn');
-const searchBtn = document.getElementById('searchBtn');
-const searchMoreBtn = document.getElementById('searchMoreBtn');
-const resultsSection = document.getElementById('resultsSection');
-const gridContainer = document.getElementById('gridContainer');
-const paginationInfo = document.getElementById('paginationInfo');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
-const loadingSpinner = document.getElementById('loadingSpinner');
-const errorMessage = document.getElementById('errorMessage');
-const errorText = document.getElementById('errorText');
-const queryStats = document.getElementById('queryStats');
+// ============================================================ chung
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, opts);
+  let body = null;
+  try { body = await res.json(); } catch { /* không phải JSON */ }
+  if (!res.ok) {
+    const msg = body && (body.error || body.detail);
+    throw new Error(typeof msg === 'string' ? msg : `Máy chủ trả về lỗi ${res.status}`);
+  }
+  return body;
+}
 
-// Carousel elements
-const carouselModal = document.getElementById('carouselModal');
-const closeCarousel = document.getElementById('closeCarousel');
-const prevFrame = document.getElementById('prevFrame');
-const nextFrame = document.getElementById('nextFrame');
-const currentFrameImg = document.getElementById('currentFrameImg');
-const framePosition = document.getElementById('framePosition');
-const frameTime = document.getElementById('frameTime');
-const frameId = document.getElementById('frameId');
-const frameIdx = document.getElementById('frameIdx');
-const thumbnailContainer = document.getElementById('thumbnailContainer');
-const carouselTitle = document.getElementById('carouselTitle');
+let toastTimer;
+function toast(msg, bad = false) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.toggle('bad', bad);
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 4200);
+}
 
-// Tab Elements
-const searchTabBtn = document.getElementById('searchTabBtn');
-const ingestTabBtn = document.getElementById('ingestTabBtn');
-const searchTabContent = document.getElementById('searchTabContent');
-const ingestTabContent = document.getElementById('ingestTabContent');
+// Tách từ giống backend (chữ thường, bỏ đuôi số nhiều) để tô vàng từ khớp trong caption
+function stem(w) {
+  w = w.toLowerCase();
+  if (w.length > 4 && w.endsWith('ies')) return w.slice(0, -3) + 'y';
+  if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
+  return w;
+}
+function highlight(text, terms) {
+  const set = new Set((terms || []).map(stem));
+  if (!set.size) return esc(text);
+  return String(text || '').split(/([\p{L}\p{N}]+)/u)
+    .map((part, i) => (i % 2 === 1 && set.has(stem(part)) ? `<mark>${esc(part)}</mark>` : esc(part)))
+    .join('');
+}
 
-// Ingest Form Elements
-const ingestBatchNameInput = document.getElementById('ingestBatchNameInput');
-const ingestCategoriesInput = document.getElementById('ingestCategoriesInput');
-const ingestDescInput = document.getElementById('ingestDescInput');
-const ingestFilesInput = document.getElementById('ingestFilesInput');
-const ingestFilesCountHint = document.getElementById('ingestFilesCountHint');
-const startIngestBtn = document.getElementById('startIngestBtn');
+function setupDropzone(zone, input, onFiles) {
+  zone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+  ['dragenter', 'dragover'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('is-over'); }));
+  ['dragleave', 'drop'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('is-over'); }));
+  zone.addEventListener('drop', (e) => onFiles([...e.dataTransfer.files]));
+  input.addEventListener('change', () => { onFiles([...input.files]); input.value = ''; });
+}
 
-// Ingest Status Containers
-const ingestWelcomeBox = document.getElementById('ingestWelcomeBox');
-const ingestProgressBox = document.getElementById('ingestProgressBox');
-const ingestSuccessBox = document.getElementById('ingestSuccessBox');
-const ingestSuccessMsg = document.getElementById('ingestSuccessMsg');
-const ingestSuccessDetail = document.getElementById('ingestSuccessDetail');
-const ingestDetectedChips = document.getElementById('ingestDetectedChips');
-const goToSearchAfterIngestBtn = document.getElementById('goToSearchAfterIngestBtn');
-const ingestResultSummaryBadge = document.getElementById('ingestResultSummaryBadge');
+// ============================================================ tabs
+function showView(name) {
+  const isSearch = name === 'search';
+  $('viewSearch').hidden = !isSearch;
+  $('viewIngest').hidden = isSearch;
+  $('tabSearch').classList.toggle('is-active', isSearch);
+  $('tabIngest').classList.toggle('is-active', !isSearch);
+  $('tabSearch').setAttribute('aria-selected', isSearch);
+  $('tabIngest').setAttribute('aria-selected', !isSearch);
+}
+$('tabSearch').addEventListener('click', () => showView('search'));
+$('tabIngest').addEventListener('click', () => showView('ingest'));
 
-// Event listeners
-searchBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    handleSearch();
+// ============================================================ thống kê
+let stats = null;
+async function loadStats() {
+  try {
+    stats = await api('/api/v1/stats');
+    const up = stats.by_source?.upload || 0;
+    $('statsLine').textContent = `${fmtNum(stats.total_images)} ảnh có caption trong kho` + (up ? `, trong đó ${fmtNum(up)} ảnh tải lên` : '');
+    renderLabelChips();
+  } catch (e) {
+    $('statsLine').textContent = `Không kết nối được máy chủ tại ${API}. Hãy khởi động backend.`;
+  }
+}
+
+// ============================================================ TÌM KIẾM
+const S = { mode: 'text', results: [], shown: 0, last: null, labels: new Set(), queryImage: null, queryImageUrl: null };
+
+document.querySelectorAll('.mode').forEach((btn) => btn.addEventListener('click', () => setMode(btn.dataset.mode)));
+function setMode(mode) {
+  S.mode = mode;
+  document.querySelectorAll('.mode').forEach((b) => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-checked', on);
+  });
+  $('textForm').hidden = mode !== 'text';
+  $('textHints').hidden = mode !== 'text';
+  $('imageForm').hidden = mode !== 'image';
+  if (mode === 'text') $('queryInput').focus();
+}
+
+$('textForm').addEventListener('submit', (e) => { e.preventDefault(); runTextSearch(); });
+document.querySelectorAll('.hint').forEach((h) => h.addEventListener('click', () => { $('queryInput').value = h.textContent; runTextSearch(); }));
+$('sourceFilter').addEventListener('change', rerun);
+
+function renderLabelChips() {
+  const labels = stats?.object_labels || [];
+  $('labelFilter').hidden = labels.length === 0;
+  $('labelChips').innerHTML = labels.slice(0, 16).map((l) =>
+    `<button class="chip${S.labels.has(l.label) ? ' is-on' : ''}" type="button" data-label="${esc(l.label)}" aria-pressed="${S.labels.has(l.label)}">${esc(l.label)} <small>${l.count}</small></button>`).join('');
+  $('labelChips').querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => {
+    const l = c.dataset.label;
+    S.labels.has(l) ? S.labels.delete(l) : S.labels.add(l);
+    renderLabelChips();
+    rerun();
+  }));
+}
+
+function filters() {
+  return {
+    source: $('sourceFilter').value || null,
+    object_labels: S.labels.size ? [...S.labels] : null,
+  };
+}
+
+function rerun() {
+  if (!S.last) return;
+  if (S.last.type === 'text') runTextSearch();
+  else if (S.last.type === 'image') runImageSearch();
+}
+
+async function runTextSearch() {
+  const q = $('queryInput').value.trim();
+  if (!q) { $('queryInput').focus(); toast('Nhập mô tả cần tìm, ví dụ: brick tower with a stepped roof'); return; }
+  S.last = { type: 'text', query: q };
+  showSkeleton();
+  try {
+    const d = await api('/api/v1/search/text', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q, limit: 120, mode: $('textMode').value, ...filters() }),
+    });
+    renderResults(d);
+  } catch (e) { renderError(e); }
+}
+
+async function runImageSearch() {
+  if (!S.queryImage) { toast('Chọn hoặc dán một ảnh để tìm.'); return; }
+  S.last = { type: 'image' };
+  showSkeleton();
+  try {
+    const d = await api('/api/v1/search/image', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_base64: S.queryImage, limit: 120, ...filters() }),
+    });
+    renderResults(d);
+  } catch (e) { renderError(e); }
+}
+
+async function runSimilar(hit) {
+  S.last = { type: 'similar', hit };
+  showView('search');
+  showSkeleton();
+  try {
+    const d = await api(`/api/v1/images/similar?key=${encodeURIComponent(hit.key)}&limit=120`);
+    d.from = hit;
+    renderResults(d);
+  } catch (e) { renderError(e); }
+}
+
+// ---- ảnh truy vấn
+function setQueryImage(file) {
+  if (!file || !file.type.startsWith('image/')) { toast('Tệp này không phải ảnh.', true); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    S.queryImage = reader.result;
+    S.queryImageUrl = reader.result;
+    $('queryPreview').src = reader.result;
+    $('queryPreview').hidden = false;
+    $('queryDropText').innerHTML = `<small>${esc(file.name || 'Ảnh dán từ bộ nhớ tạm')}</small>`;
+    $('imageSearchBtn').disabled = false;
+    $('clearQueryImage').hidden = false;
+    runImageSearch();
+  };
+  reader.readAsDataURL(file);
+}
+setupDropzone($('queryDrop'), $('queryFile'), (files) => setQueryImage(files.find((f) => f.type.startsWith('image/'))));
+$('imageSearchBtn').addEventListener('click', runImageSearch);
+$('clearQueryImage').addEventListener('click', () => {
+  S.queryImage = null;
+  $('queryPreview').hidden = true;
+  $('queryDropText').innerHTML = '<strong>Kéo ảnh vào đây</strong>, bấm để chọn, hoặc dán bằng Ctrl+V';
+  $('imageSearchBtn').disabled = true;
+  $('clearQueryImage').hidden = true;
 });
-searchMoreBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    handleSearchMore();
-});
-prevBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    changePage(-1);
-});
-nextBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    changePage(1);
-});
-textModeBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setSearchMode('text');
-});
-imageModeBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setSearchMode('image');
-});
-imageInput.addEventListener('change', handleImageUpload);
-
-// Carousel event listeners
-closeCarousel.addEventListener('click', closeCarouselModal);
-if (prevFrame) prevFrame.addEventListener('click', showPreviousFrame);
-if (nextFrame) nextFrame.addEventListener('click', showNextFrame);
-carouselModal.addEventListener('click', (e) => {
-    if (e.target === carouselModal) {
-        closeCarouselModal();
-    }
+document.addEventListener('paste', (e) => {
+  if ($('viewSearch').hidden || $('detail').open) return;
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
+  if (!item) return;
+  e.preventDefault();
+  setMode('image');
+  setQueryImage(item.getAsFile());
 });
 
-// Keyboard navigation for carousel
-document.addEventListener('keydown', (e) => {
-    if (carouselModal.style.display === 'flex') {
-        if (e.key === 'ArrowLeft') {
-            e.preventDefault();
-            showPreviousFrame();
-        } else if (e.key === 'ArrowRight') {
-            e.preventDefault();
-            showNextFrame();
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            closeCarouselModal();
-        }
-    }
-});
+// ---- hiển thị kết quả
+function showSkeleton() {
+  $('resultsEmpty').hidden = true;
+  $('loadMore').hidden = true;
+  $('resultsMeta').innerHTML = '<span class="sub">Đang tìm…</span>';
+  $('resultsGrid').innerHTML = Array.from({ length: 8 }, () =>
+    '<div class="card skeleton"><div class="card-media"></div><div class="card-body"><div class="line"></div><div class="line" style="width:70%"></div></div></div>').join('');
+}
 
-// Clipboard paste functionality
-document.addEventListener('paste', async (e) => {
-    // Only handle paste when in image search mode and not in carousel
-    if (searchMode !== 'image' || carouselModal.style.display === 'flex') {
-        return;
-    }
+function renderError(e) {
+  $('resultsGrid').innerHTML = '';
+  $('resultsMeta').innerHTML = '';
+  $('resultsEmpty').hidden = false;
+  $('resultsEmpty').innerHTML = `<p class="empty-title">Không tìm được</p><p>${esc(e.message)}</p>`;
+}
 
-    e.preventDefault();
+function renderResults(d) {
+  S.results = d.results || [];
+  S.terms = d.query_terms || [];
+  S.type = d.search_type;
+  S.shown = 0;
+  $('resultsGrid').innerHTML = '';
 
-    // Visual feedback
-    imagePreview.classList.add('paste-active');
-    setTimeout(() => {
-        imagePreview.classList.remove('paste-active');
-    }, 300);
+  const n = S.results.length;
+  let head;
+  if (d.search_type === 'text') {
+    head = `<span class="count">${fmtNum(n)} ảnh có caption khớp</span><span class="sub">“${esc(d.query)}”</span>`;
+  } else if (d.search_type === 'image') {
+    head = `<span class="query-chip">${S.queryImageUrl ? `<img src="${S.queryImageUrl}" alt="">` : ''}<span class="count">${fmtNum(n)} ảnh, xếp theo độ tương đồng</span></span>`;
+  } else if (d.search_type === 'browse') {
+    head = `<span class="count">${fmtNum(n)} ảnh vừa nạp</span><span class="sub">${esc(d.batch_name || d.query)}</span>`;
+  } else {
+    head = `<span class="query-chip"><img src="${esc(mediaUrl(d.from.image_url))}" alt=""><span class="count">${fmtNum(n)} ảnh giống nhất với</span></span><span class="sub">${esc(d.from.title)}</span>`;
+  }
+  $('resultsMeta').innerHTML = `${head}<span class="sub">${Math.round(d.query_time_ms)} ms</span>`;
 
-    const items = e.clipboardData.items;
-    let imageItem = null;
+  if (!n) {
+    $('resultsEmpty').hidden = false;
+    $('resultsEmpty').innerHTML = d.search_type === 'text'
+      ? '<p class="empty-title">Không có caption nào khớp</p><p>Caption trong kho viết bằng tiếng Anh. Thử từ khóa khác như “temple gate”, “tiled roof”, hoặc bỏ bớt bộ lọc.</p>'
+      : '<p class="empty-title">Không có ảnh phù hợp</p><p>Thử bỏ bớt bộ lọc nguồn hoặc cấu kiện.</p>';
+    return;
+  }
+  $('resultsEmpty').hidden = true;
+  showMore();
+}
 
-    // Find image in clipboard
-    for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) {
-            imageItem = items[i];
-            break;
-        }
-    }
+function showMore() {
+  const frag = document.createDocumentFragment();
+  S.results.slice(S.shown, S.shown + PAGE).forEach((hit) => frag.appendChild(card(hit)));
+  $('resultsGrid').appendChild(frag);
+  S.shown = Math.min(S.shown + PAGE, S.results.length);
+  $('loadMore').hidden = S.shown >= S.results.length;
+  $('loadMore').textContent = `Hiện thêm kết quả (còn ${S.results.length - S.shown})`;
+}
+$('loadMore').addEventListener('click', showMore);
 
-    if (imageItem) {
-        console.log('📋 Image pasted from clipboard');
-        const file = imageItem.getAsFile();
-        await handleImageFile(file, 'clipboard');
+function scoreText(hit) {
+  if (hit.similarity == null) return '';
+  return `${Math.round(Math.max(0, hit.similarity) * 100)}%`;
+}
+
+function matchBadges(hit) {
+  if (S.type !== 'text') return '';
+  const out = [];
+  if (hit.match_sources.includes('keyword')) out.push('<span class="kw">từ khóa</span>');
+  if (hit.match_sources.includes('semantic')) out.push('<span class="sem">ngữ nghĩa</span>');
+  return `<span class="match">${out.join('')}</span>`;
+}
+
+function card(hit) {
+  const el = document.createElement('button');
+  el.type = 'button';
+  el.className = 'card';
+  el.setAttribute('aria-label', `${hit.title}. ${hit.caption}`);
+  el.innerHTML = `
+    <div class="card-media">
+      <img src="${esc(mediaUrl(hit.image_url))}" alt="" loading="lazy">
+      <span class="card-rank">${hit.rank}</span>
+    </div>
+    <div class="card-body">
+      <p class="card-title">${esc(hit.title)}</p>
+      <p class="caption-text">${highlight(hit.caption, S.type === 'text' ? (hit.matched_terms.length ? hit.matched_terms : S.terms) : [])}</p>
+      <div class="card-foot">${matchBadges(hit)}<span class="score" title="Độ tương đồng cosine">${scoreText(hit)}</span></div>
+    </div>`;
+  el.addEventListener('click', () => openDetail(hit));
+  return el;
+}
+
+// ============================================================ chi tiết
+function openDetail(hit) {
+  const dlg = $('detail');
+  $('detailImg').src = mediaUrl(hit.image_url);
+  $('detailImg').alt = hit.caption;
+  $('detailTitle').textContent = hit.title;
+  const parts = [];
+  if (hit.similarity != null) parts.push(`Độ tương đồng ${scoreText(hit)}`);
+  if (hit.matched_terms?.length) parts.push(`khớp từ: ${hit.matched_terms.join(', ')}`);
+  $('detailScore').textContent = parts.join('; ');
+  $('detailCaption').innerHTML = highlight(hit.caption, S.type === 'text' ? (hit.matched_terms.length ? hit.matched_terms : S.terms) : []);
+
+  const rows = [
+    ['Tệp', hit.file_name],
+    ['Nguồn', hit.source === 'upload' ? `Tải lên (${hit.batch_name || hit.batch_id})` : 'Bộ dữ liệu Wikimedia Commons'],
+    ['Thời gian', hit.date],
+    ['Tác giả', hit.author],
+    ['Giấy phép', hit.license],
+    ['Tọa độ', hit.latitude != null && hit.longitude != null ? `${hit.latitude.toFixed(5)}, ${hit.longitude.toFixed(5)}` : ''],
+  ].filter(([, v]) => v);
+  $('detailMeta').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+
+  const tags = [...(hit.object_labels || []), ...(hit.depicts || []), ...(hit.categories || []).slice(0, 6)];
+  $('detailTags').innerHTML = tags.map((t) => `<span class="chip chip-static">${esc(t)}</span>`).join('');
+  $('detailDesc').textContent = hit.description || '';
+  $('detailDesc').hidden = !hit.description;
+
+  const src = $('detailSource');
+  src.href = hit.source_url || mediaUrl(hit.image_url);
+  src.textContent = hit.source_url ? 'Xem nguồn gốc' : 'Mở ảnh gốc';
+  $('detailSimilar').onclick = () => { dlg.close(); runSimilar(hit); };
+  dlg.showModal();
+}
+$('detailClose').addEventListener('click', () => $('detail').close());
+$('detail').addEventListener('click', (e) => { if (e.target === $('detail')) $('detail').close(); });
+
+// ============================================================ NẠP ẢNH
+const I = { items: [], captionMap: new Map(), onlyMissing: false, busy: false, lastBatch: null };
+let uid = 0;
+
+const baseName = (p) => String(p || '').split(/[\\/]/).pop().trim().toLowerCase();
+const stemName = (p) => baseName(p).replace(/\.[^.]+$/, '');
+
+function captionFor(file) {
+  return I.captionMap.get(baseName(file.name)) || I.captionMap.get(stemName(file.name)) || '';
+}
+
+async function addFiles(files) {
+  const txts = files.filter((f) => /\.txt$/i.test(f.name));
+  for (const t of txts) {
+    const text = (await t.text()).trim();
+    if (text) I.captionMap.set(stemName(t.name), text);
+  }
+  const imgs = files.filter((f) => f.type.startsWith('image/'));
+  const seen = new Set(I.items.map((it) => it.file.name + it.file.size));
+  let added = 0;
+  for (const f of imgs) {
+    if (seen.has(f.name + f.size)) continue;
+    I.items.push({ id: ++uid, file: f, url: URL.createObjectURL(f), caption: captionFor(f), status: null, reason: '' });
+    added++;
+  }
+  // Áp caption từ .txt cho ảnh đã có mà chưa có caption
+  if (txts.length) I.items.forEach((it) => { if (!it.caption) it.caption = captionFor(it.file); });
+  if (imgs.length && !added) toast('Các ảnh này đã có trong danh sách.');
+  $('ingestResult').hidden = true;
+  renderReview();
+}
+setupDropzone($('ingestDrop'), $('ingestFiles'), addFiles);
+
+// ---- đọc file caption
+function parseCSV(text) {
+  const rows = []; let row = []; let cell = ''; let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((x) => x.trim()));
+}
+const NAME_COLS = ['file', 'filename', 'file_name', 'filepath', 'path', 'image', 'image_path', 'image_file'];
+const CAP_COLS = ['caption', 'text', 'description', 'mo_ta'];
+
+function pairsFromRecords(records) {
+  const out = [];
+  for (const r of records) {
+    if (!r || typeof r !== 'object') continue;
+    const keys = Object.keys(r);
+    const nk = keys.find((k) => NAME_COLS.includes(k.toLowerCase().trim()));
+    const ck = keys.find((k) => CAP_COLS.includes(k.toLowerCase().trim()));
+    if (nk && ck) out.push([r[nk], r[ck]]);
+  }
+  return out;
+}
+
+async function loadCaptionFile(file) {
+  const text = (await file.text()).replace(/^﻿/, '');
+  let pairs = [];
+  try {
+    if (/\.jsonl$/i.test(file.name)) {
+      pairs = pairsFromRecords(text.split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l)));
+    } else if (/\.json$/i.test(file.name)) {
+      const data = JSON.parse(text);
+      pairs = Array.isArray(data) ? pairsFromRecords(data) : Object.entries(data);
     } else {
-        console.log('📋 No image found in clipboard');
-        // Show temporary message
-        const originalContent = imagePreview.innerHTML;
-        imagePreview.innerHTML = `
-            <div class="upload-placeholder" style="color: #e74c3c;">
-                ❌ Không tìm thấy ảnh trong clipboard<br>
-                <small>Hãy copy ảnh trước khi dán</small>
-            </div>
-        `;
-        setTimeout(() => {
-            imagePreview.innerHTML = originalContent;
-        }, 2000);
+      const rows = parseCSV(text);
+      const head = rows.shift().map((h) => h.toLowerCase().trim());
+      const ni = head.findIndex((h) => NAME_COLS.includes(h));
+      const ci = head.findIndex((h) => CAP_COLS.includes(h));
+      if (ni < 0 || ci < 0) throw new Error('Không thấy cột tên ảnh (file/filename/filepath) và cột caption.');
+      pairs = rows.map((r) => [r[ni], r[ci]]);
     }
+  } catch (e) {
+    $('captionFileStatus').className = 'status-line warn';
+    $('captionFileStatus').textContent = `Không đọc được ${file.name}: ${e.message}`;
+    return;
+  }
+  let n = 0;
+  for (const [name, cap] of pairs) {
+    if (!name || !cap || !String(cap).trim()) continue;
+    I.captionMap.set(baseName(name), String(cap).trim());
+    I.captionMap.set(stemName(name), String(cap).trim());
+    n++;
+  }
+  let applied = 0;
+  I.items.forEach((it) => {
+    const c = captionFor(it.file);
+    if (c) { it.caption = c; applied++; }
+  });
+  $('captionFileStatus').className = `status-line ${n ? 'good' : 'warn'}`;
+  $('captionFileStatus').textContent = n
+    ? `Đọc ${fmtNum(n)} caption từ ${file.name}. Đã gắn cho ${applied}/${I.items.length} ảnh đang chọn; ảnh chọn sau cũng sẽ tự được gắn.`
+    : `${file.name} không có dòng caption hợp lệ.`;
+  renderReview();
+}
+$('captionFile').addEventListener('change', (e) => { if (e.target.files[0]) loadCaptionFile(e.target.files[0]); e.target.value = ''; });
+
+// ---- danh sách kiểm tra
+const ready = (it) => it.caption.trim().length >= MIN_CAPTION;
+
+function itemState(it) {
+  if (it.status === 'indexed') return ['is-done', 'Đã nạp vào kho'];
+  if (it.status === 'skipped') return ['is-skipped', it.reason || 'Bị bỏ qua'];
+  if (!ready(it)) return ['is-missing', it.caption.trim() ? `Caption quá ngắn (tối thiểu ${MIN_CAPTION} ký tự)` : 'Thiếu caption'];
+  return ['is-ready', 'Sẵn sàng'];
+}
+
+function renderReview() {
+  const list = $('reviewList');
+  const has = I.items.length > 0;
+  $('reviewEmpty').hidden = has;
+  $('reviewHead').hidden = !has;
+  list.innerHTML = '';
+  I.items.forEach((it, idx) => {
+    if (I.onlyMissing && ready(it)) return;
+    const [cls, state] = itemState(it);
+    const li = document.createElement('li');
+    li.className = `review-item ${cls}`;
+    li.dataset.id = it.id;
+    const locked = it.status === 'indexed';
+    li.innerHTML = `
+      <img src="${it.url}" alt="">
+      <div class="review-fields">
+        <div class="review-name">${idx + 1}. ${esc(it.file.name)} <small>${(it.file.size / 1024).toFixed(0)} KB</small></div>
+        <label class="sr-only" for="cap${it.id}">Caption cho ${esc(it.file.name)}</label>
+        <textarea id="cap${it.id}" placeholder="Mô tả ảnh bằng tiếng Anh: công trình gì, vật liệu, mái, cột, cảnh quanh…" ${locked ? 'readonly' : ''}>${esc(it.caption)}</textarea>
+        <div class="review-note"><span class="state">${esc(state)}</span><span class="len">${it.caption.trim().length} ký tự</span></div>
+      </div>
+      <button class="icon-btn" type="button" aria-label="Bỏ ${esc(it.file.name)}" ${locked ? 'hidden' : ''}>
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      </button>`;
+    const ta = li.querySelector('textarea');
+    ta.addEventListener('input', () => {
+      it.caption = ta.value;
+      if (it.status === 'skipped') it.status = null;
+      const [c2, s2] = itemState(it);
+      li.className = `review-item ${c2}`;
+      li.querySelector('.state').textContent = s2;
+      li.querySelector('.len').textContent = `${it.caption.trim().length} ký tự`;
+      updateSummary();
+    });
+    li.querySelector('.icon-btn').addEventListener('click', () => {
+      URL.revokeObjectURL(it.url);
+      I.items = I.items.filter((x) => x.id !== it.id);
+      renderReview();
+    });
+    list.appendChild(li);
+  });
+  updateSummary();
+}
+
+function pending() { return I.items.filter((it) => it.status !== 'indexed'); }
+
+function updateSummary() {
+  const p = pending();
+  const missing = p.filter((it) => !ready(it)).length;
+  const s = $('ingestSummary');
+  const btn = $('ingestSubmit');
+  if (!p.length) {
+    s.className = 'status-line';
+    s.textContent = I.items.length ? 'Tất cả ảnh trong danh sách đã được nạp.' : 'Chưa có ảnh nào.';
+    btn.disabled = true;
+    btn.textContent = 'Nạp ảnh vào kho';
+    return;
+  }
+  if (missing) {
+    s.className = 'status-line warn';
+    s.textContent = `${missing}/${p.length} ảnh còn thiếu caption. Điền caption hoặc bỏ ảnh đó ra để tiếp tục.`;
+  } else {
+    s.className = 'status-line good';
+    s.textContent = `${p.length} ảnh đã có caption, sẵn sàng nạp.`;
+  }
+  btn.disabled = missing > 0 || I.busy;
+  btn.textContent = I.busy ? 'Đang nạp…' : `Nạp ${p.length} ảnh vào kho`;
+}
+
+$('onlyMissing').addEventListener('click', (e) => {
+  I.onlyMissing = !I.onlyMissing;
+  e.currentTarget.setAttribute('aria-pressed', I.onlyMissing);
+  e.currentTarget.textContent = I.onlyMissing ? 'Hiện tất cả ảnh' : 'Chỉ hiện ảnh thiếu caption';
+  renderReview();
+});
+$('clearAll').addEventListener('click', () => {
+  I.items.forEach((it) => URL.revokeObjectURL(it.url));
+  I.items = [];
+  $('ingestResult').hidden = true;
+  renderReview();
 });
 
-// Set search mode
-function setSearchMode(mode) {
-    searchMode = mode;
+$('ingestSubmit').addEventListener('click', async () => {
+  const items = pending();
+  if (!items.length || items.some((it) => !ready(it))) return;
+  const fd = new FormData();
+  items.forEach((it) => fd.append('files', it.file, it.file.name));
+  fd.append('captions', JSON.stringify(items.map((it) => it.caption.trim())));
+  fd.append('batch_name', $('batchName').value.trim());
+  fd.append('categories', $('batchCats').value.trim());
+  fd.append('description', $('batchDesc').value.trim());
+  fd.append('detect_objects', $('detectObjects').checked ? 'true' : 'false');
 
-    // Update button states
-    textModeBtn.classList.toggle('active', mode === 'text');
-    imageModeBtn.classList.toggle('active', mode === 'image');
+  I.busy = true;
+  updateSummary();
+  try {
+    const d = await api('/api/v1/ingest/upload', { method: 'POST', body: fd });
+    d.files.forEach((f, i) => { items[i].status = f.status; items[i].reason = f.reason || ''; items[i].key = f.key; });
+    I.lastBatch = d.batch_id;
+    showIngestResult(d);
+    loadStats();
+  } catch (e) {
+    showIngestResult({ success: false, message: e.message });
+  } finally {
+    I.busy = false;
+    renderReview();
+  }
+});
 
-    // Show/hide relevant sections
-    document.getElementById('textInputSection').style.display = mode === 'text' ? 'block' : 'none';
-    document.getElementById('imageInputSection').style.display = mode === 'image' ? 'block' : 'none';
-}
-
-// Handle image file (from upload or clipboard)
-async function handleImageFile(file, source = 'upload') {
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-        showError('Vui lòng chọn file ảnh hợp lệ');
-        return;
-    }
-
-    console.log(`🖼️ Processing image from ${source}:`, file.name || 'clipboard', file.type);
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        uploadedImageBase64 = e.target.result.split(',')[1]; // Remove data:image/...;base64, prefix
-
-        const sourceLabel = source === 'clipboard' ? 'Ảnh từ clipboard' : 'Ảnh đã upload';
-        imagePreview.innerHTML = `
-            <img src="${e.target.result}"
-                 alt="${sourceLabel}"
-                 style="max-width: 100%; max-height: 200px; border-radius: 4px;" />
-            <div style="margin-top: 8px; font-size: 12px; color: #666; text-align: center;">
-                📋 ${sourceLabel} • ${file.type}
-            </div>
-        `;
-
-        console.log('✅ Image processed successfully');
-    };
-
-    reader.onerror = function() {
-        showError('Lỗi đọc file ảnh');
-        console.error('❌ Error reading image file');
-    };
-
-    reader.readAsDataURL(file);
-}
-
-// Handle image upload
-function handleImageUpload(event) {
-    const file = event.target.files[0];
-    handleImageFile(file, 'upload');
-}
-
-// Handle search button click
-async function handleSearch() {
-    console.log('🔍 Search started, mode:', searchMode);
-
+function showIngestResult(d) {
+  const b = $('ingestResult');
+  b.hidden = false;
+  b.className = `banner ${d.success ? 'good' : 'bad'}`;
+  requestAnimationFrame(() => b.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  b.innerHTML = `<p><strong>${esc(d.message)}</strong></p>` + (d.success ? `
+    <div class="actions">
+      <button class="btn btn-primary btn-sm" id="viewBatch">Xem ảnh vừa nạp</button>
+      <button class="btn btn-quiet btn-sm" id="undoBatch">Hoàn tác lần nạp này</button>
+    </div>` : '');
+  if (!d.success) return;
+  $('viewBatch').addEventListener('click', () => {
+    showView('search');
+    runBrowseBatch(d.batch_id, d.batch_name);
+  });
+  $('undoBatch').addEventListener('click', async () => {
     try {
-        if (searchMode === 'text') {
-            const queries = getQueriesFromInput();
-            console.log('📝 Text queries:', queries);
-
-            if (queries.length === 0) {
-                showError('Vui lòng nhập ít nhất một câu query');
-                return;
-            }
-            currentQueries = queries;
-            currentObjects = getObjectsFromInput();
-            console.log('🔍 Object filters:', currentObjects);
-
-            await performTextSearch(queries, currentObjects, true);
-        } else {
-            console.log('🖼️ Image search mode');
-
-            if (!uploadedImageBase64) {
-                showError('Vui lòng upload ảnh để tìm kiếm');
-                return;
-            }
-            currentObjects = getObjectsFromInput();
-            console.log('🔍 Object filters:', currentObjects);
-
-            await performImageSearch(uploadedImageBase64, currentObjects, true);
-        }
-    } catch (error) {
-        console.error('❌ Error in handleSearch:', error);
-        showError(`Lỗi tìm kiếm: ${error.message}`);
-    }
+      const r = await api(`/api/v1/ingest/batches/${encodeURIComponent(d.batch_id)}`, { method: 'DELETE' });
+      I.items.forEach((it) => { if (it.status === 'indexed') { it.status = null; it.key = null; } });
+      b.className = 'banner bad';
+      b.innerHTML = `<p>Đã hoàn tác: xóa ${r.deleted} ảnh khỏi kho. Danh sách vẫn giữ để bạn sửa và nạp lại.</p>`;
+      renderReview();
+      loadStats();
+    } catch (e) { toast(e.message, true); }
+  });
 }
 
-// Handle search more button click
-async function handleSearchMore() {
-    if (searchMode === 'text') {
-        if (currentQueries.length === 0) {
-            showError('Không có query để tìm tiếp');
-            return;
-        }
-        await performTextSearch(currentQueries, currentObjects, false);
-    } else {
-        if (!uploadedImageBase64) {
-            showError('Không có ảnh để tìm tiếp');
-            return;
-        }
-        await performImageSearch(uploadedImageBase64, currentObjects, false);
-    }
+async function runBrowseBatch(batchId, name) {
+  S.last = { type: 'browse' };
+  showSkeleton();
+  try {
+    const d = await api(`/api/v1/images/list?batch_id=${encodeURIComponent(batchId)}`);
+    d.batch_name = name;
+    renderResults(d);
+  } catch (e) { renderError(e); }
 }
 
-// Get queries from textarea input
-function getQueriesFromInput() {
-    const input = queryInput.value.trim();
-    if (!input) return [];
-
-    return input.split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
-}
-
-// Get objects from textarea input (supports newline, comma, semicolon)
-function getObjectsFromInput() {
-    const input = objectInput.value.trim();
-    if (!input) return [];
-
-    return input.split(/[\n,;]+/)
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
-}
-
-// Perform text search API call
-async function performTextSearch(queries, objects, isNewSearch) {
-    console.log('📡 Starting text search API call...');
-
-    try {
-        showLoading(true);
-        hideError();
-
-        const requestBody = {
-            query_texts: queries,
-            object_filters: objects.length > 0 ? objects : null,
-            limit: 1000,
-            score_threshold: 0.0
-        };
-
-        console.log('📤 Request body:', requestBody);
-        console.log('🌐 API URL:', `${API_BASE_URL}/api/v1/images/search/text`);
-
-        const response = await fetch(`${API_BASE_URL}/api/v1/images/search/text`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody)
-        });
-
-        console.log('📡 Response status:', response.status);
-        console.log('📡 Response headers:', response.headers);
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('❌ API Error Response:', errorText);
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-
-        const data = await response.json();
-        console.log('✅ API Response data:', data);
-
-        handleSearchResponse(data, isNewSearch);
-
-    } catch (error) {
-        console.error('❌ Text search error:', error);
-        showError(`Lỗi tìm kiếm văn bản: ${error.message}`);
-    } finally {
-        showLoading(false);
-    }
-}
-
-// Perform image search API call
-async function performImageSearch(imageBase64, objects, isNewSearch) {
-    console.log('📡 Starting image search API call...');
-
-    try {
-        showLoading(true);
-        hideError();
-
-        const requestBody = {
-            image_base64: imageBase64,
-            object_filters: objects.length > 0 ? objects : null,
-            limit: 1000,
-            score_threshold: 0.0
-        };
-
-        console.log('📤 Request body (image base64 length):', imageBase64.length);
-        console.log('📤 Object filters:', objects);
-        console.log('🌐 API URL:', `${API_BASE_URL}/api/v1/images/search/image`);
-
-        const response = await fetch(`${API_BASE_URL}/api/v1/images/search/image`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody)
-        });
-
-        console.log('📡 Response status:', response.status);
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('❌ API Error Response:', errorText);
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-
-        const data = await response.json();
-        console.log('✅ API Response data:', data);
-
-        handleSearchResponse(data, isNewSearch);
-
-    } catch (error) {
-        console.error('❌ Image search error:', error);
-        showError(`Lỗi tìm kiếm ảnh: ${error.message}`);
-    } finally {
-        showLoading(false);
-    }
-}
-
-// Handle search response
-function handleSearchResponse(data, isNewSearch) {
-    console.log('📊 Handling search response:', data);
-    console.log('🆕 Is new search:', isNewSearch);
-
-    try {
-        if (isNewSearch) {
-            currentResults = data.results || [];
-            currentGroupedResults = data.grouped_by_video || [];
-            currentPage = 0;
-            console.log('🔄 Reset to new results:', currentResults.length, 'items');
-        } else {
-            // Append new results to existing ones
-            const newResults = data.results || [];
-            currentResults = [...currentResults, ...newResults];
-            console.log('➕ Added', newResults.length, 'new results. Total:', currentResults.length);
-
-            // Merge grouped results
-            mergeGroupedResults(data.grouped_by_video || []);
-        }
-
-        console.log('📈 Current results count:', currentResults.length);
-        console.log('📺 Grouped videos count:', currentGroupedResults.length);
-
-        updateQueryStats(data);
-        displayResults();
-        updateButtonStates();
-
-        console.log('✅ Search response handled successfully');
-
-    } catch (error) {
-        console.error('❌ Error handling search response:', error);
-        showError(`Lỗi xử lý kết quả: ${error.message}`);
-    }
-}
-
-// Merge grouped results for "search more"
-function mergeGroupedResults(newGroupedResults) {
-    const existingGroups = new Map();
-
-    // Index existing groups
-    currentGroupedResults.forEach(group => {
-        existingGroups.set(group.video_id, group);
-    });
-
-    // Merge new groups
-    newGroupedResults.forEach(newGroup => {
-        if (existingGroups.has(newGroup.video_id)) {
-            const existing = existingGroups.get(newGroup.video_id);
-            existing.frames = [...existing.frames, ...newGroup.frames];
-            existing.total_frames = existing.frames.length;
-            existing.best_score = Math.max(existing.best_score, newGroup.best_score);
-        } else {
-            currentGroupedResults.push(newGroup);
-        }
-    });
-
-    // Re-sort by best score
-    currentGroupedResults.sort((a, b) => b.best_score - a.best_score);
-}
-
-// Display results in grid
-function displayResults() {
-    console.log('🎨 Displaying results...');
-    console.log('📊 Total results:', currentResults.length);
-
-    try {
-        if (currentResults.length === 0) {
-            console.log('📭 No results to display');
-            resultsSection.style.display = 'none';
-            return;
-        }
-
-        resultsSection.style.display = 'block';
-
-        const startIndex = currentPage * ITEMS_PER_PAGE;
-        const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, currentResults.length);
-        const pageResults = currentResults.slice(startIndex, endIndex);
-
-        console.log(`📄 Page ${currentPage + 1}: showing ${startIndex + 1}-${endIndex} of ${currentResults.length}`);
-
-        // Update pagination info
-        paginationInfo.textContent = `Hiển thị ${startIndex + 1}-${endIndex} của ${currentResults.length} kết quả`;
-
-        // Clear grid
-        gridContainer.innerHTML = '';
-        console.log('🧹 Grid cleared');
-
-        // Add grid items
-        pageResults.forEach((result, index) => {
-            console.log(`🖼️ Creating grid item ${index + 1}:`, result.video_id);
-            const gridItem = createGridItem(result);
-            gridContainer.appendChild(gridItem);
-        });
-
-        // Fill remaining slots with empty items if needed
-        const remainingSlots = ITEMS_PER_PAGE - pageResults.length;
-        for (let i = 0; i < remainingSlots; i++) {
-            const emptyItem = createEmptyGridItem();
-            gridContainer.appendChild(emptyItem);
-        }
-
-        console.log('✅ Results displayed successfully');
-
-    } catch (error) {
-        console.error('❌ Error displaying results:', error);
-        showError(`Lỗi hiển thị kết quả: ${error.message}`);
-    }
-}
-
-// Helper to extract a friendly architectural landmark title
-function getCleanImageTitle(result) {
-    if (result.jpg_path) {
-        const filename = result.jpg_path.split('/').pop();
-        const stem = filename.substring(0, filename.lastIndexOf('.')) || filename;
-        if (stem && !/^\d+$/.test(stem)) {
-            return decodeURIComponent(stem).replace(/_/g, ' ');
-        }
-    }
-    if (result.original_id && !result.original_id.startsWith('video_') && !/^\d+$/.test(result.original_id)) {
-        return decodeURIComponent(result.original_id).replace(/_/g, ' ');
-    }
-    if (result.video_id && !result.video_id.startsWith('chan_') && !result.video_id.startsWith('L21_') && !result.video_id.startsWith('Album_ARCH_')) {
-        return result.video_id;
-    }
-    return `Ảnh tư liệu #${result.rank}`;
-}
-
-// Helper to extract clean original object labels from YOLOv8 results
-function getFormattedObjectLabels(objects, maxCount = null) {
-    if (!objects || !Array.isArray(objects) || objects.length === 0) {
-        return [];
-    }
-
-    const uniqueLabels = [];
-    const seen = new Set();
-
-    for (const item of objects) {
-        let rawLabel = '';
-        if (typeof item === 'string') {
-            rawLabel = item.trim();
-        } else if (item && typeof item === 'object') {
-            rawLabel = (item.label || item.name || item.class || '').trim();
-        }
-
-        if (rawLabel) {
-            const lower = rawLabel.toLowerCase();
-            if (!seen.has(lower)) {
-                seen.add(lower);
-                uniqueLabels.push(rawLabel);
-            }
-        }
-    }
-
-    if (maxCount && maxCount > 0) {
-        return uniqueLabels.slice(0, maxCount);
-    }
-    return uniqueLabels;
-}
-
-// Create a grid item for a result
-function createGridItem(result) {
-    const gridItem = document.createElement('div');
-    gridItem.className = 'grid-item';
-
-    // Build image path - prioritize image_url, fall back to backend redirect endpoint
-    let imageUrl = result.image_url || result.jpg_path;
-    if (!imageUrl.startsWith('http')) {
-        const cleanPath = imageUrl.replace(/^\//, '');
-        imageUrl = `${API_BASE_URL}/api/v1/images/keyframes/${cleanPath}`;
-    }
-
-    const title = getCleanImageTitle(result);
-    const detectedLabels = getFormattedObjectLabels(result.objects, 3);
-    const objText = detectedLabels.length > 0 ? `✨ ${detectedLabels.join(', ')}` : `🏛️ Toàn cảnh`;
-
-    gridItem.innerHTML = `
-        <div class="grid-item-image" style="background-image: url('${imageUrl}')"
-             onerror="this.classList.add('error'); this.innerHTML='Không thể tải ảnh';">
-            <div class="rank-badge">#${result.rank}</div>
-        </div>
-        <div class="grid-item-info">
-            <div class="grid-item-title" title="${title}">🏛️ ${title}</div>
-            <div class="grid-item-score">🎯 AI Score: ${(result.similarity_score * 100).toFixed(1)}%</div>
-            <div class="grid-item-time" style="color: #38bdf8; font-size: 11px; margin-top: 4px;">${objText}</div>
-            <div class="grid-item-frame" style="color: #64748b; font-size: 10px;">Thứ hạng: #${result.rank}</div>
-        </div>
-    `;
-
-    // Add click handler to open carousel
-    gridItem.addEventListener('click', () => {
-        openCarouselModal(result);
-    });
-
-    return gridItem;
-}
-
-// Create an empty grid item
-function createEmptyGridItem() {
-    const gridItem = document.createElement('div');
-    gridItem.className = 'grid-item';
-    gridItem.style.opacity = '0.3';
-
-    gridItem.innerHTML = `
-        <div class="grid-item-image" style="background-color: #f0f0f0;"></div>
-        <div class="grid-item-info">
-            <div class="grid-item-title">-</div>
-            <div class="grid-item-score">-</div>
-            <div class="grid-item-frame">-</div>
-        </div>
-    `;
-
-    return gridItem;
-}
-
-// Change page
-function changePage(direction) {
-    const newPage = currentPage + direction;
-    const maxPage = Math.ceil(currentResults.length / ITEMS_PER_PAGE) - 1;
-
-    if (newPage >= 0 && newPage <= maxPage) {
-        currentPage = newPage;
-        displayResults();
-        updateButtonStates();
-    }
-}
-
-// Update query statistics
-function updateQueryStats(data) {
-    if (queryStats) {
-        const statsHtml = `
-            <div class="stats-item">
-                <span class="stats-label">Tổng số ảnh:</span>
-                <span class="stats-value">${data.total_results}</span>
-            </div>
-            <div class="stats-item">
-                <span class="stats-label">Thời gian:</span>
-                <span class="stats-value">${Math.round(data.query_time_ms)}ms</span>
-            </div>
-        `;
-        queryStats.innerHTML = statsHtml;
-    }
-}
-
-// Update button states
-function updateButtonStates() {
-    const maxPage = Math.ceil(currentResults.length / ITEMS_PER_PAGE) - 1;
-
-    prevBtn.disabled = currentPage <= 0;
-    nextBtn.disabled = currentPage >= maxPage;
-
-    // Update search more button based on search mode
-    if (searchMode === 'text') {
-        searchMoreBtn.disabled = currentQueries.length === 0;
-    } else {
-        searchMoreBtn.disabled = !uploadedImageBase64;
-    }
-}
-
-// Show/hide loading spinner
-function showLoading(show) {
-    console.log('⏳ Loading:', show);
-
-    loadingSpinner.style.display = show ? 'block' : 'none';
-    searchBtn.disabled = show;
-
-    // Only disable search more if loading or no valid queries/image
-    if (show) {
-        searchMoreBtn.disabled = true;
-    } else {
-        updateButtonStates(); // Re-enable based on current state
-    }
-}
-
-// Show error message
-function showError(message) {
-    errorText.textContent = message;
-    errorMessage.style.display = 'block';
-}
-
-// Hide error message
-function hideError() {
-    errorMessage.style.display = 'none';
-}
-
-// Initialize the app
-function init() {
-    console.log('🚀 Initializing Video Search App...');
-    console.log('🌐 API Base URL:', API_BASE_URL);
-
-    // Set default search mode
-    setSearchMode('text');
-
-    // Set up some sample data for testing
-    queryInput.value = '';
-    objectInput.value = '';
-
-    // Add keyboard shortcuts
-    queryInput.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'Enter') {
-            e.preventDefault();
-            handleSearch();
-        }
-    });
-
-    objectInput.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'Enter') {
-            e.preventDefault();
-            handleSearch();
-        }
-    });
-
-    // Suggestion chips for architectural elements
-    document.querySelectorAll('.sugg-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-            const filterVal = chip.getAttribute('data-filter');
-            const currentObjs = getObjectsFromInput();
-            const idx = currentObjs.findIndex(o => o.toLowerCase() === filterVal.toLowerCase());
-            
-            if (idx >= 0) {
-                currentObjs.splice(idx, 1);
-                chip.classList.remove('active');
-            } else {
-                currentObjs.push(filterVal);
-                chip.classList.add('active');
-            }
-            objectInput.value = currentObjs.join('\n');
-        });
-    });
-
-
-    // Tab switching event listeners
-    if (searchTabBtn && ingestTabBtn) {
-        searchTabBtn.addEventListener('click', () => {
-            searchTabBtn.classList.add('active');
-            ingestTabBtn.classList.remove('active');
-            if (searchTabContent) searchTabContent.style.display = 'block';
-            if (ingestTabContent) ingestTabContent.style.display = 'none';
-        });
-
-        ingestTabBtn.addEventListener('click', () => {
-            ingestTabBtn.classList.add('active');
-            searchTabBtn.classList.remove('active');
-            if (ingestTabContent) ingestTabContent.style.display = 'block';
-            if (searchTabContent) searchTabContent.style.display = 'none';
-        });
-    }
-
-    if (goToSearchAfterIngestBtn && searchTabBtn) {
-        goToSearchAfterIngestBtn.addEventListener('click', () => {
-            searchTabBtn.click();
-        });
-    }
-
-    // Ingest file select count hint updater
-    if (ingestFilesInput) {
-        ingestFilesInput.addEventListener('change', (e) => {
-            const count = e.target.files.length;
-            if (ingestFilesCountHint) {
-                if (count > 0) {
-                    ingestFilesCountHint.innerHTML = `✅ <strong>Đã chọn:</strong> ${count} tệp ảnh kiến trúc sẵn sàng xử lý.`;
-                } else {
-                    ingestFilesCountHint.innerHTML = `💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.`;
-                }
-            }
-        });
-    }
-
-    // Start Ingest listener
-    if (startIngestBtn) {
-        startIngestBtn.addEventListener('click', handleStartIngestion);
-    }
-
-    // Initialize button states
-    updateButtonStates();
-
-    console.log('✅ App initialized successfully');
-}
-
-// Detail Modal Functions for Architectural Photography
-function openCarouselModal(selectedResult) {
-    console.log('Opening photo detail modal for:', selectedResult);
-    try {
-        const cleanTitle = selectedResult.monument_name || getCleanImageTitle(selectedResult);
-        if (carouselTitle) {
-            carouselTitle.textContent = `Chi tiết Công trình & Phân tích AI - ${cleanTitle}`;
-        }
-        const cleanPath = selectedResult.jpg_path.replace(/^\//, '');
-        const imageUrl = `${API_BASE_URL}/api/v1/images/keyframes/${cleanPath}`;
-
-        currentFrameImg.src = imageUrl;
-        currentFrameImg.onerror = function() {
-            this.style.opacity = '0.5';
-            this.alt = 'Ảnh không tải được';
-        };
-        currentFrameImg.onload = function() {
-            this.style.opacity = '1';
-        };
-
-        const fname = selectedResult.jpg_path ? selectedResult.jpg_path.split('/').pop() : selectedResult.original_id;
-        if (framePosition) framePosition.textContent = cleanTitle;
-        if (frameTime) frameTime.textContent = `Độ khớp: ${(selectedResult.similarity_score * 100).toFixed(1)}%`;
-        if (frameId) frameId.textContent = decodeURIComponent(fname || 'N/A');
-
-        // Card 2: Mô tả lịch sử kiến trúc
-        const monumentDescEl = document.getElementById('monumentDesc');
-        if (monumentDescEl) {
-            monumentDescEl.textContent = selectedResult.description || `Tư liệu hình ảnh công trình kiến trúc ${cleanTitle}.`;
-        }
-
-        // Card 3: Thể loại & Phân loại
-        const monumentCatsEl = document.getElementById('monumentCategories');
-        if (monumentCatsEl) {
-            const cats = selectedResult.categories || [];
-            if (cats.length > 0) {
-                monumentCatsEl.innerHTML = cats.map(c => `<span class="category-tag">${c}</span>`).join('');
-            } else {
-                monumentCatsEl.innerHTML = `<span class="category-tag">Kiến trúc Việt Nam</span>`;
-            }
-        }
-
-        // Card 4: Cấu kiện kiến trúc nhận diện (YOLO-World)
-        if (frameIdx) {
-            if (selectedResult.objects && selectedResult.objects.length > 0) {
-                frameIdx.innerHTML = selectedResult.objects.map(obj => {
-                    const name = obj.label || obj.name || obj.display_name;
-                    const conf = obj.confidence ? ` (${(obj.confidence * 100).toFixed(0)}%)` : '';
-                    return `<span class="object-chip">${name}${conf}</span>`;
-                }).join('');
-            } else {
-                frameIdx.innerHTML = `<span class="no-object-text">Toàn cảnh kiến trúc (Không phát hiện cấu kiện phụ)</span>`;
-            }
-        }
-
-        // Card 5: Thông tin tư liệu (Niên đại & Tác giả)
-        const monumentDateEl = document.getElementById('monumentDate');
-        if (monumentDateEl) {
-            monumentDateEl.textContent = selectedResult.date || 'Tư liệu lưu trữ';
-        }
-        const monumentAuthorEl = document.getElementById('monumentAuthor');
-        if (monumentAuthorEl) {
-            monumentAuthorEl.textContent = selectedResult.author || 'Kho Wikimedia Commons';
-        }
-
-        // Action: Open full original image
-        const viewFullBtn = document.getElementById('viewFullImageBtn');
-        if (viewFullBtn) {
-            viewFullBtn.href = selectedResult.source_url || imageUrl;
-        }
-
-        // Action: Search similar landmark/architecture
-        const searchSimilarBtn = document.getElementById('searchSimilarBtn');
-        if (searchSimilarBtn) {
-            searchSimilarBtn.onclick = () => {
-                closeCarouselModal();
-                if (queryInput) {
-                    queryInput.value = cleanTitle;
-                    if (textModeBtn) textModeBtn.click();
-                    handleSearch();
-                }
-            };
-        }
-
-        if (prevFrame) prevFrame.style.display = 'none';
-        if (nextFrame) nextFrame.style.display = 'none';
-
-        carouselModal.style.display = 'flex';
-    } catch (error) {
-        console.error('Error in openCarouselModal:', error);
-        showError(`Lỗi tải ảnh chi tiết: ${error.message}`);
-    }
-}
-
-function closeCarouselModal() {
-    console.log('🚪 Closing detail modal');
-    carouselModal.style.display = 'none';
-}
-
-function showPreviousFrame() {
-    // No-op for individual architectural photos
-}
-
-function showNextFrame() {
-    // No-op for individual architectural photos
-}
-
-// ==========================================================================
-// INGEST PIPELINE (ZERO-REDIS DIRECT FASTAPI -> MINIO & QDRANT)
-// ==========================================================================
-
-async function handleStartIngestion() {
-    if (!ingestFilesInput || !ingestFilesInput.files || ingestFilesInput.files.length === 0) {
-        alert("Vui lòng chọn ít nhất 1 tệp ảnh kiến trúc từ máy tính của bạn.");
-        return;
-    }
-
-    const batchName = ingestBatchNameInput ? ingestBatchNameInput.value.trim() : "";
-    const categories = ingestCategoriesInput ? ingestCategoriesInput.value.trim() : "";
-    const description = ingestDescInput ? ingestDescInput.value.trim() : "";
-    const files = ingestFilesInput.files;
-
-    const formData = new FormData();
-    formData.append("batch_name", batchName || "Bộ sưu tập Kiến trúc");
-    if (categories) formData.append("categories", categories);
-    if (description) formData.append("description", description);
-
-    for (let i = 0; i < files.length; i++) {
-        formData.append("files", files[i]);
-    }
-
-    // UI state: Loading
-    startIngestBtn.disabled = true;
-    startIngestBtn.textContent = "⌛ Đang xử lý AI & Lưu vào MinIO/Qdrant...";
-    if (ingestWelcomeBox) ingestWelcomeBox.style.display = "none";
-    if (ingestSuccessBox) ingestSuccessBox.style.display = "none";
-    if (ingestProgressBox) ingestProgressBox.style.display = "block";
-    if (ingestResultSummaryBadge) ingestResultSummaryBadge.style.display = "none";
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/images/ingest/upload`, {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!response.ok) {
-            const err = await response.text();
-            throw new Error(err || "Lỗi nạp ảnh lên hệ thống.");
-        }
-
-        const data = await response.json();
-        console.log("Upload response:", data);
-
-        // Show success
-        if (ingestProgressBox) ingestProgressBox.style.display = "none";
-        if (ingestSuccessBox) ingestSuccessBox.style.display = "block";
-        if (ingestSuccessMsg) ingestSuccessMsg.textContent = `🎉 Nạp thành công ${data.uploaded_count} ảnh vào hệ thống!`;
-        if (ingestSuccessDetail) ingestSuccessDetail.textContent = `Mã mẻ ảnh: ${data.batch_id} • Đã lưu trữ ảnh gốc lên MinIO S3 và đánh chỉ mục vector vào Qdrant.`;
-
-        if (ingestResultSummaryBadge) {
-            ingestResultSummaryBadge.style.display = "inline-block";
-            ingestResultSummaryBadge.textContent = `${data.uploaded_count} ảnh đã nạp`;
-        }
-
-        // Render detected chips
-        if (ingestDetectedChips) {
-            const labels = data.all_detected_objects || [];
-            if (labels.length > 0) {
-                ingestDetectedChips.innerHTML = labels.map(l => `<span class="category-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">${l}</span>`).join(' ');
-            } else {
-                ingestDetectedChips.innerHTML = `<span class="no-object-text">Toàn cảnh kiến trúc (Không phát hiện cấu kiện phụ)</span>`;
-            }
-        }
-
-        // Reset file input
-        ingestFilesInput.value = "";
-        if (ingestFilesCountHint) {
-            ingestFilesCountHint.innerHTML = `💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.`;
-        }
-
-    } catch (error) {
-        console.error("Ingest error:", error);
-        alert(`Lỗi nạp ảnh: ${error.message}`);
-        if (ingestProgressBox) ingestProgressBox.style.display = "none";
-        if (ingestWelcomeBox) ingestWelcomeBox.style.display = "block";
-    } finally {
-        startIngestBtn.disabled = false;
-        startIngestBtn.textContent = "⚡ Phân tích AI & Lưu Vào Kho";
-    }
-}
-
-// Start the app when DOM is loaded
-document.addEventListener('DOMContentLoaded', init);
+// ============================================================ khởi động
+setMode('text');
+loadStats();

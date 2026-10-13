@@ -34,7 +34,8 @@ def setup_logging():
     logger.add(
         "logs/app.log",
         level=settings.log_level,
-        format=settings.log_format,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        encoding="utf-8",
         rotation="10 MB",
         retention="7 days",
         compression="zip"

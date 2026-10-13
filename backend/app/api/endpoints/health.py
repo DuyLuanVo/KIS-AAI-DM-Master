@@ -1,30 +1,26 @@
 """
 Health check endpoints
 """
-from app.models.schemas import HealthResponse
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
+
+from app.config import settings
+from app.models.schemas import HealthResponse
 
 router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint"""
-    return HealthResponse()
+    return HealthResponse(version=settings.app_version)
 
 
 @router.get("/health/qdrant")
 async def qdrant_health_check():
-    """Qdrant specific health check"""
     try:
-        from app.database.qdrant_client import qdrant_client
-        info = qdrant_client.get_collection_info()
-        return {"status": "healthy", "qdrant": info}
+        from app.database.vector_store import get_store
+
+        store = get_store()
+        return {"status": "healthy", "collection": store.collection, "points": store.count()}
     except Exception as e:
-        from fastapi import Response
-        # Return 503 Service Unavailable if Qdrant is unhealthy/offline
-        return Response(
-            content=f'{{"status": "unhealthy", "error": "{str(e)}"}}',
-            media_type="application/json",
-            status_code=503
-        )
+        return JSONResponse(status_code=503, content={"status": "unhealthy", "error": str(e)})

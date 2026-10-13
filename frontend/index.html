@@ -1,303 +1,189 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KIS Architect - Hệ thống Truy xuất Kho tư liệu Kiến trúc Việt Nam</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css?v=9">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KIS Architect · Kho ảnh kiến trúc Việt Nam</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
-    <div class="main-container">
-        <header>
-            <div class="header-logo">
-                <span class="logo-icon">🏛️</span>
-                <h1>KIS Architect - Kho Tư Liệu Kiến Trúc Việt Nam</h1>
-            </div>
-            <!-- Tab Navigation Header -->
-            <div class="tab-navigation">
-                <button type="button" id="searchTabBtn" class="btn btn-tab active">🔍 Tìm Kiếm Không Gian</button>
-                <button type="button" id="ingestTabBtn" class="btn btn-tab">📥 Nạp Kho Ảnh Kiến Trúc</button>
-            </div>
-        </header>
-
-        <!-- SEARCH TAB CONTENT -->
-        <div id="searchTabContent" class="tab-content active">
-            <div class="content-wrapper">
-                <!-- Left Sidebar - Input Section -->
-                <div class="sidebar">
-                    <div class="search-section">
-                        <!-- Search Mode Selection -->
-                        <div class="mode-selector">
-                            <button type="button" id="textModeBtn" class="btn btn-mode active">🔤 Tìm bằng mô tả</button>
-                            <button type="button" id="imageModeBtn" class="btn btn-mode">🖼️ Tìm bằng ảnh</button>
-                        </div>
-
-                        <!-- Text Search Section -->
-                        <div id="textInputSection" class="input-section">
-                            <div class="input-group">
-                                <label for="queryInput">Nhập câu mô tả không gian kiến trúc (Tiếng Anh):</label>
-                                <textarea
-                                    id="queryInput"
-                                    placeholder="Ví dụ:&#10;Modern tropical house facade with wooden louvers and plants&#10;Traditional Vietnamese temple architecture under sunlight&#10;Minimalist bright dining area with concrete walls"
-                                    rows="4"
-                                ></textarea>
-                            </div>
-                        </div>
-
-                        <!-- Image Search Section -->
-                        <div id="imageInputSection" class="input-section" style="display: none;">
-                            <div class="input-group">
-                                <label for="imageInput">Chọn ảnh kiến trúc mẫu để tìm kiếm:</label>
-                                <input type="file" id="imageInput" accept="image/*" class="file-input">
-                                <div class="upload-hint">
-                                    💡 <strong>Mẹo:</strong> Bạn có thể dán ảnh trực tiếp bằng <kbd>Ctrl+V / Cmd+V</kbd>
-                                </div>
-                                <div id="imagePreview" class="image-preview">
-                                    <div class="upload-placeholder">
-                                        🖼️ Chưa có ảnh mẫu được chọn<br>
-                                        <small>Chọn file hoặc dán ảnh từ bộ nhớ tạm</small>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Object Filter Section -->
-                        <div class="input-group">
-                            <label for="objectInput">Lọc theo cấu kiện kiến trúc / vật thể (YOLO Filter):</label>
-                            <textarea
-                                id="objectInput"
-                                placeholder="Nhập cấu kiện cần lọc (mỗi dòng hoặc dấu phẩy)&#10;Ví dụ:&#10;bell tower&#10;stone statue&#10;wooden column&#10;curved roof"
-                                rows="3"
-                            ></textarea>
-                            <div class="filter-suggestion-chips" id="filterSuggestionChips">
-                                <button type="button" class="sugg-chip" data-filter="bell tower">bell tower</button>
-                                <button type="button" class="sugg-chip" data-filter="stone statue">stone statue</button>
-                                <button type="button" class="sugg-chip" data-filter="wooden column">wooden column</button>
-                                <button type="button" class="sugg-chip" data-filter="curved roof">curved roof</button>
-                                <button type="button" class="sugg-chip" data-filter="temple gate">temple gate</button>
-                            </div>
-                        </div>
-
-                        <!-- Search Buttons -->
-                        <div class="button-group">
-                            <button type="button" id="searchBtn" class="btn btn-primary">🔍 Phát Lệnh Tìm Kiếm</button>
-                            <button type="button" id="searchMoreBtn" class="btn btn-secondary" disabled>➕ Tìm tiếp</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right Side - Results Section -->
-                <div class="main-content">
-                    <div class="results-section" id="resultsSection">
-                        <div class="results-header">
-                            <h2>Kết quả tư liệu Kiến Trúc</h2>
-                            <div class="pagination-info">
-                                <span id="paginationInfo">Hiển thị 1-20 của 0 kết quả</span>
-                            </div>
-                        </div>
-
-                        <!-- Query Statistics -->
-                        <div id="queryStats" class="query-stats"></div>
-
-                        <!-- Pagination Controls -->
-                        <div class="pagination-controls">
-                            <button type="button" id="prevBtn" class="btn btn-outline" disabled>
-                                ← Trước
-                            </button>
-                            <button type="button" id="nextBtn" class="btn btn-outline" disabled>
-                                Tiếp →
-                            </button>
-                        </div>
-
-                        <!-- Grid Container -->
-                        <div class="grid-container" id="gridContainer">
-                            <!-- Grid items will be dynamically added here -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- INGEST TAB CONTENT -->
-        <div id="ingestTabContent" class="tab-content" style="display: none;">
-            <div class="content-wrapper">
-                <!-- Left Sidebar - Ingest Form -->
-                <div class="sidebar">
-                    <div class="search-section ingest-sidebar-section">
-                        <h3>📥 Nạp Kho Ảnh Kiến Trúc Mới</h3>
-                        
-                        <div class="input-group">
-                            <label for="ingestBatchNameInput">Tên Công Trình / Bộ Sưu Tập:</label>
-                            <input type="text" id="ingestBatchNameInput" placeholder="Ví dụ: Chùa Tây Phương - Hà Nội" class="text-input" style="width: 100%; border-radius: 8px; padding: 10px; background: rgba(15, 23, 42, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.1);">
-                        </div>
-
-                        <div class="input-group">
-                            <label for="ingestCategoriesInput">Thể loại kiến trúc (phân tách bằng dấu phẩy):</label>
-                            <input type="text" id="ingestCategoriesInput" placeholder="Ví dụ: Chùa cổ, Cột gỗ, Di tích thời Lê" class="text-input" style="width: 100%; border-radius: 8px; padding: 10px; background: rgba(15, 23, 42, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.1);">
-                        </div>
-
-                        <div class="input-group">
-                            <label for="ingestDescInput">Mô tả lịch sử / Kiến trúc:</label>
-                            <textarea id="ingestDescInput" rows="3" placeholder="Nhập tóm tắt lịch sử, cấu trúc, niên đại hoặc vị trí công trình..." style="width: 100%; border-radius: 8px; padding: 10px; background: rgba(15, 23, 42, 0.6); color: #fff; border: 1px solid rgba(255, 255, 255, 0.1); font-family: inherit; font-size: 13px;"></textarea>
-                        </div>
-
-                        <div class="input-group">
-                            <label for="ingestFilesInput">Chọn tệp ảnh kiến trúc (Hỗ trợ chọn nhiều ảnh):</label>
-                            <input type="file" id="ingestFilesInput" accept="image/*" multiple class="file-input">
-                            <div class="upload-hint" id="ingestFilesCountHint" style="margin-top: 8px; color: var(--primary-light, #38bdf8);">
-                                💡 <strong>Mẹo:</strong> Bạn có thể bôi đen hoặc dùng phím tắt <kbd>Ctrl + A</kbd> trong cửa sổ duyệt file để chọn cùng lúc nhiều tệp ảnh.
-                            </div>
-                        </div>
-
-                        <div class="button-group">
-                            <button type="button" id="startIngestBtn" class="btn btn-primary" style="width: 100%;">⚡ Phân tích AI & Lưu Vào Kho</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right Side - Ingestion Results / Preview -->
-                <div class="main-content">
-                    <div class="results-section">
-                        <div class="results-header">
-                            <h2>📊 Kết Quả Phân Tích & Nạp Dữ Liệu</h2>
-                            <span id="ingestResultSummaryBadge" class="score-badge" style="display: none;">Đã sẵn sàng</span>
-                        </div>
-
-                        <div id="ingestStatusContainer" style="padding: 24px;">
-                            <div class="info-card" id="ingestWelcomeBox" style="background: rgba(30, 41, 59, 0.5); border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 12px; padding: 32px; text-align: center;">
-                                <div style="font-size: 40px; margin-bottom: 12px;">🏛️</div>
-                                <h3 style="color: #f1f5f9; margin-bottom: 8px;">Chọn ảnh công trình để nạp vào hệ thống</h3>
-                                <p style="color: #94a3b8; font-size: 14px; max-width: 500px; margin: 0 auto;">Hệ thống sẽ tự động tải ảnh lên <strong>MinIO S3</strong>, trích xuất vector 512 chiều bằng <strong>CLIP</strong> và nhận diện các cấu kiện kiến trúc bằng <strong>YOLO-World</strong> để lưu vào <strong>Qdrant</strong>.</p>
-                            </div>
-
-                            <div id="ingestProgressBox" style="display: none; text-align: center; padding: 40px 20px;">
-                                <div class="spinner" style="margin: 0 auto 16px;"></div>
-                                <h4 style="color: #38bdf8; font-size: 16px;">AI đang phân tích CLIP & nhận diện cấu kiện YOLO-World...</h4>
-                                <p style="color: #94a3b8; font-size: 13px;">Vui lòng đợi trong giây lát khi hệ thống lập chỉ mục vào Qdrant & MinIO</p>
-                            </div>
-
-                            <div id="ingestSuccessBox" style="display: none;">
-                                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-                                    <h4 style="color: #10b981; margin-bottom: 6px;" id="ingestSuccessMsg">✅ Đã nạp thành công ảnh vào kho tư liệu!</h4>
-                                    <p style="color: #cbd5e1; font-size: 13px;" id="ingestSuccessDetail"></p>
-                                </div>
-
-                                <div class="info-card">
-                                    <div class="info-label">Các cấu kiện kiến trúc phát hiện được (YOLO-World):</div>
-                                    <div id="ingestDetectedChips" class="category-tags-container" style="margin-top: 8px;"></div>
-                                </div>
-
-                                <div style="margin-top: 20px;">
-                                    <button type="button" id="goToSearchAfterIngestBtn" class="btn btn-primary">🔍 Đi đến Tìm kiếm Ngay</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Loading Spinner -->
-        <div id="loadingSpinner" class="loading-spinner" style="display: none;">
-            <div class="spinner"></div>
-            <p>Pháp sư AI đang dò ngự nghĩa không gian...</p>
-        </div>
-
-        <!-- Error Message -->
-        <div id="errorMessage" class="error-message" style="display: none;">
-            <p id="errorText"></p>
-        </div>
-
-        <!-- Detail Image Modal -->
-        <!-- Detail Modal for Architectural Photography -->
-        <div id="carouselModal" class="carousel-modal" style="display: none;">
-            <div class="carousel-content modal-detail-content">
-                <div class="carousel-header">
-                    <h3 id="carouselTitle">Chi tiết Công trình & Phân tích AI</h3>
-                    <button type="button" id="closeCarousel" class="close-btn" title="Đóng (Esc)" aria-label="Đóng">
-                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
-                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                    </button>
-                </div>
-
-                <div class="carousel-body detail-modal-body">
-                    <!-- Left Stage: Adaptive Image Viewport (Supports all aspect ratios) -->
-                    <div class="modal-image-stage">
-                        <img id="currentFrameImg" src="" alt="Ảnh kiến trúc" />
-                        <div class="modal-floating-actions">
-                            <a id="viewFullImageBtn" href="#" target="_blank" class="view-full-btn" title="Xem ảnh gốc độ phân giải cao">
-                                Xem ảnh gốc
-                            </a>
-                        </div>
-                    </div>
-
-                    <!-- Right Panel: Info & AI Analytics -->
-                    <div class="modal-info-panel">
-                        <!-- Card 1: Tên công trình & Điểm tương đồng -->
-                        <div class="info-card">
-                            <div class="info-card-header">
-                                <span class="info-badge">Tên Công Trình</span>
-                                <span id="frameTime" class="score-badge">Độ khớp: --%</span>
-                            </div>
-                            <h4 id="framePosition" class="info-title">Đang tải...</h4>
-                        </div>
-
-                        <!-- Card 2: Lịch sử & Mô tả kiến trúc -->
-                        <div class="info-card" id="cardMonumentDesc">
-                            <div class="info-label">Mô tả & Lịch sử Kiến trúc</div>
-                            <div id="monumentDesc" class="monument-desc-box">Đang cập nhật tư liệu mô tả...</div>
-                        </div>
-
-                        <!-- Card 3: Thể loại & Phân loại -->
-                        <div class="info-card" id="cardMonumentCategories">
-                            <div class="info-label">Thể loại & Phân loại</div>
-                            <div id="monumentCategories" class="category-tags-container">
-                                <span class="category-tag">Kiến trúc Việt Nam</span>
-                            </div>
-                        </div>
-
-                        <!-- Card 4: Cấu kiện kiến trúc nhận diện (YOLO-World) -->
-                        <div class="info-card">
-                            <div class="info-label">Cấu kiện kiến trúc nhận diện (YOLO-World)</div>
-                            <div id="frameIdx" class="object-tags-container">
-                                <span class="no-object-text">Đang phân tích cấu kiện...</span>
-                            </div>
-                        </div>
-
-                        <!-- Card 5: Thông tin tư liệu & Nguồn gốc -->
-                        <div class="info-card meta-details-card">
-                            <div class="info-label">Thông tin tư liệu</div>
-                            <div class="meta-row">
-                                <span class="meta-field-name">Tệp dữ liệu:</span>
-                                <span id="frameId" class="meta-field-value-mono">photo.jpg</span>
-                            </div>
-                            <div class="meta-row" id="metaDateRow">
-                                <span class="meta-field-name">Niên đại / Ngày ghi:</span>
-                                <span id="monumentDate" class="meta-field-value">--</span>
-                            </div>
-                            <div class="meta-row" id="metaAuthorRow">
-                                <span class="meta-field-name">Nguồn / Tác giả:</span>
-                                <span id="monumentAuthor" class="meta-field-value">--</span>
-                            </div>
-                        </div>
-
-                        <!-- Card 6: Thao tác tìm kiếm tương tự -->
-                        <div class="info-card quick-actions">
-                            <button type="button" id="searchSimilarBtn" class="btn-search-similar">
-                                Tìm kiếm hình ảnh tương tự
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 48 32" aria-hidden="true">
+        <path d="M2 14 C10 14 14 6 24 6 C34 6 38 14 46 14 L42 17 L6 17 Z" />
+        <rect x="9" y="17" width="3" height="13" /><rect x="22.5" y="17" width="3" height="13" /><rect x="36" y="17" width="3" height="13" />
+      </svg>
+      <div>
+        <h1>Kho ảnh kiến trúc Việt Nam</h1>
+        <p class="brand-sub" id="statsLine">Đang kết nối kho dữ liệu…</p>
+      </div>
     </div>
+    <nav class="tabs" role="tablist" aria-label="Chức năng">
+      <button class="tab is-active" role="tab" id="tabSearch" aria-selected="true" aria-controls="viewSearch">Tìm kiếm</button>
+      <button class="tab" role="tab" id="tabIngest" aria-selected="false" aria-controls="viewIngest">Thêm ảnh vào kho</button>
+    </nav>
+  </header>
 
-    <script src="script.js?v=14"></script>
+  <!-- ============================== TÌM KIẾM ============================== -->
+  <main id="viewSearch" class="view" role="tabpanel" aria-labelledby="tabSearch">
+    <section class="query-panel">
+      <div class="mode-switch" role="radiogroup" aria-label="Cách tìm">
+        <button class="mode is-active" role="radio" aria-checked="true" data-mode="text">Bằng mô tả</button>
+        <button class="mode" role="radio" aria-checked="false" data-mode="image">Bằng hình ảnh</button>
+      </div>
+
+      <form id="textForm" class="query-row" autocomplete="off">
+        <label for="queryInput" class="sr-only">Mô tả ảnh cần tìm</label>
+        <input id="queryInput" class="query-input" type="search"
+               placeholder="Mô tả bằng tiếng Anh, ví dụ: red brick tower with a stepped roof">
+        <select id="textMode" class="query-select" aria-label="Cách so khớp caption">
+          <option value="hybrid">Ngữ nghĩa + từ khóa</option>
+          <option value="semantic">Chỉ ngữ nghĩa</option>
+          <option value="keyword">Chỉ từ khóa</option>
+        </select>
+        <button class="btn btn-primary" type="submit">Tìm</button>
+      </form>
+      <div id="textHints" class="hint-row">
+        <span class="hint-label">Thử:</span>
+        <button class="hint" type="button">brick Cham tower</button>
+        <button class="hint" type="button">pagoda roof with dragon decorations</button>
+        <button class="hint" type="button">colonial building with arched windows</button>
+        <button class="hint" type="button">stilt house with thatched roof</button>
+        <button class="hint" type="button">stone bridge over a river</button>
+      </div>
+
+      <div id="imageForm" class="image-query" hidden>
+        <label id="queryDrop" class="dropzone dropzone-compact" tabindex="0">
+          <input id="queryFile" type="file" accept="image/*" hidden>
+          <img id="queryPreview" alt="" hidden>
+          <span id="queryDropText">
+            <strong>Kéo ảnh vào đây</strong>, bấm để chọn, hoặc dán bằng Ctrl+V
+          </span>
+        </label>
+        <div class="image-query-actions">
+          <button id="imageSearchBtn" class="btn btn-primary" type="button" disabled>Tìm ảnh tương đồng</button>
+          <button id="clearQueryImage" class="btn btn-quiet" type="button" hidden>Bỏ ảnh</button>
+        </div>
+      </div>
+
+      <div class="filter-row">
+        <label class="filter">
+          <span>Nguồn</span>
+          <select id="sourceFilter">
+            <option value="">Tất cả ảnh</option>
+            <option value="dataset">Bộ dữ liệu gốc</option>
+            <option value="upload">Ảnh đã tải lên</option>
+          </select>
+        </label>
+        <div id="labelFilter" class="label-filter" hidden>
+          <span>Cấu kiện</span>
+          <div id="labelChips" class="chips"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="results" aria-live="polite">
+      <div id="resultsMeta" class="results-meta"></div>
+      <div id="resultsGrid" class="grid"></div>
+      <div id="resultsEmpty" class="empty">
+        <p class="empty-title">Tìm theo mô tả hoặc theo một bức ảnh</p>
+        <p>Mô tả sẽ được so với caption của từng ảnh trong kho. Ảnh mẫu sẽ được so về hình thức với các ảnh đã lưu.</p>
+      </div>
+      <div class="more-row"><button id="loadMore" class="btn btn-quiet" hidden>Hiện thêm kết quả</button></div>
+    </section>
+  </main>
+
+  <!-- ============================== THÊM ẢNH ============================== -->
+  <main id="viewIngest" class="view" role="tabpanel" aria-labelledby="tabIngest" hidden>
+    <div class="ingest-layout">
+      <aside class="ingest-side">
+        <section class="step">
+          <h2><span class="step-no">1</span>Chọn ảnh</h2>
+          <label id="ingestDrop" class="dropzone" tabindex="0">
+            <input id="ingestFiles" type="file" accept="image/*,.txt" multiple hidden>
+            <strong>Kéo ảnh vào đây</strong> hoặc bấm để chọn nhiều ảnh.
+            <small>Có thể chọn kèm file .txt cùng tên với ảnh để làm caption.</small>
+          </label>
+        </section>
+
+        <section class="step">
+          <h2><span class="step-no">2</span>Gắn caption</h2>
+          <p class="step-help">Mỗi ảnh cần một caption tiếng Anh mô tả nội dung. Tìm kiếm bằng mô tả sẽ truy vấn trên chính caption này.</p>
+          <label class="btn btn-quiet file-btn">
+            <input id="captionFile" type="file" accept=".csv,.json,.jsonl,.txt" hidden>
+            Nhập caption từ file CSV / JSON
+          </label>
+          <details class="format-help">
+            <summary>Định dạng file caption</summary>
+            <p>CSV có cột tên ảnh (<code>file</code>, <code>filename</code> hoặc <code>filepath</code>) và cột <code>caption</code>. Ảnh được ghép theo tên file, không phân biệt đường dẫn.</p>
+            <pre>filepath,caption
+chua_mot_cot.jpg,"A small wooden pagoda on a single stone pillar..."</pre>
+            <p>JSON dạng <code>{"tên_ảnh.jpg": "caption"}</code>, hoặc mảng <code>[{"file": ..., "caption": ...}]</code>, hoặc JSONL mỗi dòng một object.</p>
+          </details>
+          <p id="captionFileStatus" class="status-line"></p>
+        </section>
+
+        <section class="step">
+          <h2><span class="step-no">3</span>Thông tin chung</h2>
+          <label class="field"><span>Tên công trình / bộ sưu tập <em>(tùy chọn)</em></span>
+            <input id="batchName" type="text" placeholder="Ví dụ: Chùa Tây Phương, Hà Nội"></label>
+          <label class="field"><span>Thể loại, cách nhau bằng dấu phẩy <em>(tùy chọn)</em></span>
+            <input id="batchCats" type="text" placeholder="Chùa, Kiến trúc thời Lê"></label>
+          <label class="field"><span>Mô tả chung <em>(tùy chọn)</em></span>
+            <textarea id="batchDesc" rows="2"></textarea></label>
+          <label class="check"><input id="detectObjects" type="checkbox"> Nhận diện cấu kiện kiến trúc bằng YOLO-World (chậm hơn)</label>
+        </section>
+
+        <div class="submit-box">
+          <p id="ingestSummary" class="status-line">Chưa có ảnh nào.</p>
+          <button id="ingestSubmit" class="btn btn-primary btn-block" disabled>Nạp ảnh vào kho</button>
+        </div>
+      </aside>
+
+      <section class="ingest-main">
+        <div id="ingestResult" class="banner" hidden></div>
+        <div class="review-head" id="reviewHead" hidden>
+          <h2>Kiểm tra ảnh và caption</h2>
+          <div class="review-tools">
+            <button id="onlyMissing" class="btn btn-quiet btn-sm" type="button" aria-pressed="false">Chỉ hiện ảnh thiếu caption</button>
+            <button id="clearAll" class="btn btn-quiet btn-sm" type="button">Xóa danh sách</button>
+          </div>
+        </div>
+        <ol id="reviewList" class="review-list"></ol>
+        <div id="reviewEmpty" class="empty">
+          <p class="empty-title">Chưa chọn ảnh</p>
+          <p>Ảnh bạn chọn sẽ hiện ở đây cùng ô caption để kiểm tra trước khi nạp.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ============================== CHI TIẾT ============================== -->
+  <dialog id="detail" class="detail" aria-labelledby="detailTitle">
+    <div class="detail-media">
+      <img id="detailImg" alt="">
+    </div>
+    <div class="detail-body">
+      <button id="detailClose" class="icon-btn" aria-label="Đóng">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      </button>
+      <h2 id="detailTitle"></h2>
+      <p id="detailScore" class="detail-score"></p>
+      <blockquote id="detailCaption" class="caption-text detail-caption"></blockquote>
+      <dl id="detailMeta" class="meta"></dl>
+      <div id="detailTags" class="chips"></div>
+      <p id="detailDesc" class="detail-desc"></p>
+      <div class="detail-actions">
+        <button id="detailSimilar" class="btn btn-primary">Tìm ảnh tương đồng</button>
+        <a id="detailSource" class="btn btn-quiet" target="_blank" rel="noopener">Xem nguồn gốc</a>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="script.js?v=20"></script>
 </body>
 </html>

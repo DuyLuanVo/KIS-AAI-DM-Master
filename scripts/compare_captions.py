@@ -1,6 +1,6 @@
 r"""
 So sanh caption cua 2 VLM (Qwen3.6 va Gemma 4) bang embedding de chon 1 caption chuan cho CLIP.
-  - Tuong dong cao  -> Tu dong lay caption cua model uu tien (--prefer, mac dinh Gemma 4)
+  - Tuong dong cao  -> Tu dong lay caption cua model uu tien (--prefer)
   - Tuong dong thap hoac 2 caption mo ta 2 loai cong trinh khac nhau -> Kiem tra thu cong
 
 Cau truc thu muc de xuat:
@@ -330,8 +330,8 @@ def main():
                     help="File captions_clip.csv cua Gemma 4 (tuong thich ca flag --gemini)")
     ap.add_argument("--model", default=MODEL, help="Model SentenceTransformer dung de embedding")
     ap.add_argument("--threshold", default="auto", help="Nguong cosine, hoac 'auto'")
-    ap.add_argument("--prefer", choices=["q", "g"], default="g",
-                    help="Model uu tien khi chon tu dong (q: Qwen, g: Gemma 4, mac dinh: g)")
+    ap.add_argument("--prefer", choices=["q", "g"], default="q",
+                help="Model uu tien khi chon tu dong (q: Qwen, g: Gemma 4, mac dinh: q)")
     ap.add_argument("--calibrate", action="store_true", help="Goi y nguong tu calibration_sample.csv da cham")
     ap.add_argument("--max-error", type=float, default=0.05, help="Ti le loi chap nhan khi --calibrate")
     ap.add_argument("--merge", action="store_true", help="Gop ket qua thanh captions_final.csv")

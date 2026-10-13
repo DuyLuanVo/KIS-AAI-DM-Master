@@ -1,0 +1,79 @@
+KẾT QUẢ SO SÁNH CAPTION QWEN3.6 vs GEMMA 4 (12/10/2026)
+=====================================================
+
+1. MỤC TIÊU
+- Hai model VLM (Qwen3.6 và Gemma 4) đã viết caption cho ảnh kiến trúc Việt Nam.
+- Cần chọn ra 1 caption đúng cho mỗi ảnh để train CLIP.
+- Script: compare_captions.py. Kết quả nằm trong thư mục compare_output\.
+
+2. DỮ LIỆU
+- Qwen: 7678 caption. Gemma 4: 7657 caption. Tổng cộng 7756 ảnh khác nhau.
+- Có cả 2 caption: 7579 ảnh.
+- Chỉ có 1 caption: 177 ảnh (99 ảnh chỉ có Qwen, 78 ảnh chỉ có Gemma).
+
+3. CÁCH LÀM
+- Đổi mỗi caption thành vector (model all-mpnet-base-v2), rồi đo độ giống nhau
+  (cosine, từ 0 đến 1) giữa 2 caption của cùng 1 ảnh.
+- 2 caption giống nhau -> 2 model mô tả giống nhau -> tin được, tự động lấy caption Qwen.
+- 2 caption khác nhau  -> có thể 1 trong 2 model sai -> người kiểm tra bằng mắt.
+- Phân bố độ giống nhau:
+    Cùng 1 ảnh       : min 0.19 | p5 0.57 | p25 0.70 | trung vị 0.77 | p75 0.84
+    2 ảnh ngẫu nhiên : trung vị 0.37 | p95 0.62 | p99 0.72 | p99.9 0.82
+  -> Caption của cùng 1 ảnh giống nhau hơn rõ rệt so với 2 ảnh ghép ngẫu nhiên.
+  -> Có 2308 ảnh (30%) có độ giống nhau < 0.72. Script ghi là "gần như chắc chắn có lỗi",
+     nhưng mẫu chấm tay cho thấy phần lớn chỉ do Gemma sai hoặc 2 model tả khác góc nhìn.
+
+4. CHỌN NGƯỠNG
+- Ngưỡng tự động ban đầu là 0.82 (= p99.9 của 2 ảnh ngẫu nhiên): 5191 ảnh (68.5%)
+  phải kiểm tra tay. Quá chặt, không dùng.
+- Chấm tay 100 ảnh mẫu (calibration_sample.csv), lấy đều 10 ảnh cho mỗi khoảng độ giống nhau.
+  Kết quả: caption Qwen đúng 94/100, sai 6/100.
+    sim 0.51  Chùa Liên Hoa       : đọc sai/bịa chữ trên biển
+    sim 0.55  Mỹ Sơn              : gọi nền móng đền tháp là "tomb"
+    sim 0.64  Rồng đá thành nhà Hồ: tả thành "cây cầu đá" (không có cầu)
+    sim 0.68  Chùa Bảo Đàm        : đọc thành "CHÙA BẢO ĐỨC"
+    sim 0.68  Chùa Bửu Quang      : gọi là "house"
+    sim 0.80  Tháp Chăm Nha Trang : gọi là "brick pagodas"
+- Nhận xét:
+  + Ở nhóm độ giống nhau thấp, thường Gemma sai còn Qwen đúng. Vd: Gemma gọi tháp Chăm
+    là "tomb", chuông đồng là "trống đá", linga-yoni là "stupa".
+  + Khi Qwen sai thì Gemma thường đúng hơn -> lúc kiểm tra tay nên đọc cả 2 caption.
+- Lỗi ước tính trong nhóm tự động theo từng ngưỡng (theo --calibrate):
+    Ngưỡng | Lỗi nhóm tự động | Số ảnh check tay (do độ giống nhau thấp)
+     0.56  |      4.3%        |   325 ( 4.3%)   <- script gợi ý
+     0.60  |      4.3%        |   566 ( 7.5%)   <- ĐÃ CHỌN
+     0.65  |      3.6%        |  1078 (14.2%)
+     0.70  |      1.3%        |  1931 (25.5%)
+     0.82  |      0.0%        |  5191 (68.5%)
+- Chọn 0.60 thay vì 0.56: lỗi ước tính như nhau, nhưng kiểm tra thêm khoảng 240 ảnh
+  có độ giống nhau thấp nhất cho chắc.
+- Lưu ý: mẫu chỉ có 6 lỗi nên con số ước tính có sai số khá lớn. Dự kiến vẫn còn khoảng
+  4% caption sai trong nhóm tự động (khoảng 250-300 ảnh).
+
+5. KẾT QUẢ VỚI NGƯỠNG 0.60
+- Tự động lấy caption Qwen: 6895 ảnh (91.0% số ảnh có đủ 2 caption).
+- Cần kiểm tra tay: 861 ảnh (11.1% tổng số ảnh), gồm:
+    566  độ giống nhau < 0.60
+    114  độ giống nhau cao nhưng 2 model nói 2 loại công trình khác nhau (vd: chùa vs nhà)
+      4  caption bị lọt chữ "visible_text"/"image_type" (tổng 5 ảnh, 1 ảnh đã nằm ở nhóm trên)
+    177  chỉ có 1 caption
+  Kiểm tra: 6895 + 566 + 114 + 4 = 7579 ảnh có đủ 2 caption; cộng 177 = 7756 ảnh.
+
+6. CÁC FILE TRONG compare_output\
+- similarity_all.csv     : toàn bộ 7579 ảnh có đủ 2 caption, kèm độ giống nhau,
+                           trạng thái auto/manual và cả 2 caption. Dùng để tra cứu.
+- manual_review.csv      : 861 ảnh cần kiểm tra tay, kèm lý do. ĐÂY LÀ FILE CẦN LÀM TIẾP.
+- calibration_sample.csv : 100 ảnh mẫu đã chấm (cột ok, note), dùng để chọn ngưỡng.
+- embeddings_cache.npz   : bộ nhớ đệm vector, giúp lần chạy sau nhanh hơn. Không cần mở.
+- captions_final.csv     : (chưa có) file cuối để train CLIP, tạo ở bước 7.
+
+7. VIỆC CÒN LẠI
+- Mở manual_review.csv, xem ảnh theo cột filepath, điền cột pick:
+    q = lấy Qwen | g = lấy Gemma | x = bỏ ảnh
+  Nếu cả 2 caption đều sai thì tự viết caption vào cột final_caption (được ưu tiên nhất).
+- Dòng nào để trống pick sẽ bị BỎ khỏi file cuối.
+- Đóng Excel, rồi chạy: python compare_captions.py --merge
+  -> gộp 6895 caption tự động + lựa chọn tay thành captions_final.csv (filepath, caption).
+  Nếu ảnh trên máy train để ở thư mục khác thì thêm: --image-dir <thư mục ảnh>
+- Sau khi chạy, dòng "Chua review" ở cuối kết quả phải bằng 0.
+  Có thể chạy lại --merge bao nhiêu lần cũng được, mỗi lần ghi đè file cũ.

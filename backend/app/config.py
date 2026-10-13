@@ -1,54 +1,62 @@
 """
-Application configuration
+Cấu hình ứng dụng KIS Architect.
+
+Mọi giá trị đều đọc được từ biến môi trường hoặc file backend/.env (không phân biệt hoa thường).
 """
+from pathlib import Path
 from typing import List
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    """Application settings"""
+    model_config = SettingsConfigDict(env_file=str(PROJECT_ROOT / "backend" / ".env"), case_sensitive=False, extra="ignore")
 
-    # Application
-    app_name: str = "Video Retrieval API"
-    app_version: str = "1.0.0"
+    # Ứng dụng
+    app_name: str = "KIS Architect API"
+    app_version: str = "2.0.0"
     debug: bool = False
-
-    # Server
     host: str = "0.0.0.0"
     port: int = 8000
+    cors_origins: List[str] = ["*"]
+    log_level: str = "INFO"
+    # Phục vụ giao diện frontend/ ngay tại http://localhost:8000/
+    serve_frontend: bool = True
+    frontend_dir: str = str(PROJECT_ROOT / "frontend")
 
-    # CORS
-    cors_origins: List[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5500",
-        "http://127.0.0.1:5500",
-        "*"  # Allow all origins for development
-    ]
-    cors_methods: List[str] = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-    cors_headers: List[str] = ["*"]
-
-    # Qdrant
+    # Qdrant: "server" (Docker, mặc định) | "local" (lưu vào thư mục, không cần Docker) | "memory" (test)
+    qdrant_mode: str = "server"
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
-    qdrant_collection: str = "video_keyframes"
+    qdrant_path: str = str(PROJECT_ROOT / "qdrant_local")
+    qdrant_collection: str = "kis_architecture"
 
-    # MinIO
+    # Lưu trữ ảnh: "minio" (mặc định) | "local" (đọc/ghi thư mục trên máy)
+    storage_backend: str = "minio"
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
     minio_secret_key: str = "minioadmin"
     minio_bucket: str = "kis-keyframes"
     minio_secure: bool = False
+    # Thư mục ảnh của bộ dữ liệu gốc (key "dataset/<tên file>")
+    dataset_dir: str = str(PROJECT_ROOT / "data" / "vietnam_architecture")
+    # Thư mục lưu ảnh người dùng tải lên khi storage_backend=local (key "uploads/...")
+    media_dir: str = str(PROJECT_ROOT / "media")
 
-    # Logging
-    log_level: str = "INFO"
-    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    # Mô hình nhúng: "clip" (CLIP + sentence-transformers, mặc định) | "lite" (nhẹ, không cần GPU/tải model; dùng cho test/demo)
+    embedder_backend: str = "clip"
+    clip_model: str = "ViT-B/32"
+    # Model nhúng caption. Caption là tiếng Anh; dùng model đa ngôn ngữ nếu muốn gõ truy vấn tiếng Việt,
+    # ví dụ: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+    text_model: str = "sentence-transformers/all-mpnet-base-v2"
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # Tìm kiếm
+    default_limit: int = 60
+    max_limit: int = 300
+    rrf_k: int = 60  # hằng số Reciprocal Rank Fusion khi trộn kết quả ngữ nghĩa + từ khóa
+    min_caption_chars: int = 10
 
 
-# Global settings instance
 settings = Settings()

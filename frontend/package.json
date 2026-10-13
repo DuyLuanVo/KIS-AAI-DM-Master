@@ -1,16 +1,9 @@
 {
-  "name": "video-search-frontend",
-  "version": "1.0.0",
-  "description": "Video Search Frontend with Mock API",
-  "main": "mock-server.js",
+  "name": "kis-architect-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Giao diện tĩnh của KIS Architect. Mặc định được backend phục vụ tại http://localhost:8000/",
   "scripts": {
-    "start": "node mock-server.js",
-    "dev": "node mock-server.js",
-    "serve": "python -m http.server 8080"
-  },
-  "keywords": ["video", "search", "frontend", "mock"],
-  "author": "",
-  "license": "MIT",
-  "dependencies": {},
-  "devDependencies": {}
+    "serve": "python -m http.server 5500"
+  }
 }

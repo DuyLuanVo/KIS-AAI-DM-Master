@@ -1,46 +1,29 @@
-# FastAPI Backend Dependencies
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
+# API
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
 pydantic>=2.5.0
-python-multipart>=0.0.6
+pydantic-settings>=2.1.0
+python-multipart>=0.0.9
+loguru>=0.7.0
 
-# Qdrant client for vector database
-qdrant-client>=1.7.0
+# Vector DB va luu tru anh
+qdrant-client>=1.12.0
 boto3>=1.28.0
 
-# CLIP model dependencies
+# Mo hinh nhung
+#   anh    : CLIP ViT-B/32 (goi openai-clip)
+#   caption: sentence-transformers (all-mpnet-base-v2, giong model o compare_captions.py)
 torch>=2.0.0
 torchvision>=0.15.0
 openai-clip
-
-# Image processing
+sentence-transformers>=2.6.0
 pillow>=10.0.0
 numpy>=1.24.0
 
-# Database and ORM
-sqlalchemy>=2.0.0
-alembic>=1.12.0
+# Tuy chon: nhan dien cau kien kien truc (YOLO-World) khi bat --yolo
+ultralytics>=8.1.0
+opencv-python>=4.8.0
 
-# Environment and configuration
-python-dotenv>=1.0.0
-pydantic-settings>=2.1.0
-
-# HTTP client
-httpx>=0.25.0
-
-# Logging and monitoring
-loguru>=0.7.0
-
-# Development dependencies
+# Test
 pytest>=7.0.0
-pytest-asyncio>=0.21.0
-black>=23.0.0
-flake8>=6.0.0
-isort>=5.12.0
-
-# Optional: For production
-gunicorn>=21.2.0
-
-# AI & Object Detection
-ultralytics>=8.0.0
-
+httpx>=0.25.0

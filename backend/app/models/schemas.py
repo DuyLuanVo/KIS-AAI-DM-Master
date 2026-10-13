@@ -1,5 +1,5 @@
 """
-Pydantic schemas for API requests and responses
+Pydantic schemas cho API tìm kiếm & nạp ảnh kiến trúc.
 """
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -8,139 +8,79 @@ from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
-    """Health check response"""
     status: str = "healthy"
     timestamp: datetime = Field(default_factory=datetime.now)
-    version: str = "1.0.0"
+    version: str = "2.0.0"
 
 
-class VectorSearchRequest(BaseModel):
-    """Request model for vector search"""
-    query_vector: List[float] = Field(..., description="Query vector for similarity search")
-    limit: int = Field(default=10, ge=1, le=100, description="Maximum number of results")
-    score_threshold: float = Field(default=0.7, ge=0.0, le=1.0, description="Minimum similarity score")
-    filter_conditions: Optional[Dict[str, Any]] = Field(default=None, description="Filter conditions")
+class SearchFilters(BaseModel):
+    object_labels: Optional[List[str]] = Field(default=None, description="Lọc theo cấu kiện YOLO (khớp bất kỳ)")
+    source: Optional[str] = Field(default=None, description="'dataset' hoặc 'upload'")
+    batch_id: Optional[str] = None
 
 
-class VectorSearchResult(BaseModel):
-    """Individual search result"""
-    id: str
-    score: float
-    payload: Dict[str, Any]
+class TextSearchRequest(SearchFilters):
+    query: str = Field(..., min_length=1, description="Câu mô tả cần tìm trong caption")
+    limit: int = Field(default=60, ge=1, le=300)
+    mode: str = Field(default="hybrid", description="'hybrid' (ngữ nghĩa + từ khóa), 'semantic' hoặc 'keyword'")
 
 
-class VectorSearchResponse(BaseModel):
-    """Response model for vector search"""
-    results: List[VectorSearchResult]
-    total_found: int
+class ImageSearchRequest(SearchFilters):
+    image_base64: str = Field(..., description="Ảnh mã hóa base64 (có thể kèm tiền tố data:image/...)")
+    limit: int = Field(default=60, ge=1, le=300)
+
+
+class SearchHit(BaseModel):
+    rank: int
+    key: str
+    image_url: str
+    title: str
+    caption: str
+    score: float = Field(..., description="Điểm xếp hạng cuối cùng")
+    similarity: Optional[float] = Field(default=None, description="Cosine của vector (ảnh hoặc caption)")
+    keyword_score: Optional[float] = Field(default=None, description="Điểm BM25 đã chuẩn hóa 0-1")
+    matched_terms: List[str] = []
+    match_sources: List[str] = Field(default=[], description="'semantic', 'keyword', 'image'")
+    file_name: str = ""
+    description: str = ""
+    categories: List[str] = []
+    depicts: List[str] = []
+    date: str = ""
+    author: str = ""
+    license: str = ""
+    source_url: str = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    source: str = "dataset"
+    batch_id: Optional[str] = None
+    batch_name: Optional[str] = None
+    objects: List[Dict[str, Any]] = []
+    object_labels: List[str] = []
+
+
+class SearchResponse(BaseModel):
+    search_type: str = Field(..., description="'text' (truy vấn caption) | 'image' (ảnh tương đồng) | 'similar'")
+    query: Optional[str] = None
+    query_terms: List[str] = []
+    total_results: int
     query_time_ms: float
+    results: List[SearchHit]
 
 
-class VectorUploadRequest(BaseModel):
-    """Request model for uploading vectors"""
-    vectors: List[List[float]] = Field(..., description="List of vectors to upload")
-    ids: List[str] = Field(..., description="IDs for each vector")
-    payloads: Optional[List[Dict[str, Any]]] = Field(default=None, description="Payload data for each vector")
+class IngestFileResult(BaseModel):
+    file_name: str
+    status: str = Field(..., description="'indexed' hoặc 'skipped'")
+    reason: Optional[str] = None
+    key: Optional[str] = None
+    image_url: Optional[str] = None
+    object_labels: List[str] = []
 
 
-class VectorUploadResponse(BaseModel):
-    """Response model for vector upload"""
+class IngestResponse(BaseModel):
     success: bool
-    uploaded_count: int
+    batch_id: Optional[str]
+    batch_name: str
+    indexed_count: int
+    skipped_count: int
+    files: List[IngestFileResult]
     message: str
-
-
-class VectorDeleteRequest(BaseModel):
-    """Request model for deleting vectors"""
-    ids: List[str] = Field(..., description="IDs of vectors to delete")
-
-
-class VectorDeleteResponse(BaseModel):
-    """Response model for vector deletion"""
-    success: bool
-    deleted_count: int
-    message: str
-
-
-class CollectionInfoResponse(BaseModel):
-    """Response model for collection information"""
-    name: str
-    vector_size: int
-    points_count: int
-    status: str
-
-
-class ErrorResponse(BaseModel):
-    """Error response model"""
-    error: str
-    detail: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.now)
-
-
-# Video Search API Schemas
-class VideoTextSearchRequest(BaseModel):
-    """Request model for text-based video search"""
-    query_texts: List[str] = Field(
-        ..., description="List of text queries"
-    )
-    object_filters: Optional[List[str]] = Field(
-        default=None, description="Filter by object types"
-    )
-    limit: int = Field(default=500, ge=1, le=1000)
-    score_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
-
-
-class VideoImageSearchRequest(BaseModel):
-    """Request model for image-based video search"""
-    image_base64: str = Field(..., description="Base64 encoded image")
-    object_filters: Optional[List[str]] = Field(
-        default=None, description="Filter by object types"
-    )
-    limit: int = Field(default=500, ge=1, le=1000)
-    score_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
-
-
-class VideoSearchResult(BaseModel):
-    """Individual video search result"""
-    rank: int = Field(..., description="Ranking position")
-    original_id: str = Field(..., description="Original frame ID")
-    video_id: str = Field(..., description="Video ID")
-    keyframe_idx: int = Field(..., description="Keyframe index")
-    jpg_path: str = Field(..., description="Path to JPEG file")
-    image_url: Optional[str] = Field(default=None, description="Pre-signed URL to the image on MinIO")
-    pts_time: float = Field(..., description="Timestamp in video")
-    frame_idx: int = Field(..., description="Frame index")
-    similarity_score: float = Field(..., description="Similarity score")
-    objects: List[Dict[str, Any]] = Field(
-        default=[], description="Detected objects"
-    )
-    monument_name: Optional[str] = Field(default=None, description="Tên công trình kiến trúc / di tích")
-    description: Optional[str] = Field(default=None, description="Mô tả lịch sử và phong cách kiến trúc")
-    categories: Optional[List[str]] = Field(default=[], description="Danh mục thể loại kiến trúc / Tags")
-    date: Optional[str] = Field(default=None, description="Niên đại hoặc ngày ghi nhận")
-    author: Optional[str] = Field(default=None, description="Tác giả hoặc người đóng góp")
-    source_url: Optional[str] = Field(default=None, description="Đường dẫn tư liệu nguồn")
-    latitude: Optional[float] = Field(default=None, description="Vĩ độ GPS")
-    longitude: Optional[float] = Field(default=None, description="Kinh độ GPS")
-
-
-class VideoGroupedResult(BaseModel):
-    """Video search results grouped by video"""
-    video_id: str = Field(..., description="Video ID")
-    total_frames: int = Field(..., description="Number of matching frames")
-    best_score: float = Field(..., description="Highest similarity score")
-    frames: List[VideoSearchResult] = Field(
-        ..., description="List of matching frames"
-    )
-
-
-class VideoSearchResponse(BaseModel):
-    """Response model for video search"""
-    total_results: int = Field(..., description="Total number of results")
-    query_time_ms: float = Field(..., description="Query execution time")
-    results: List[VideoSearchResult] = Field(
-        ..., description="List of search results"
-    )
-    grouped_by_video: List[VideoGroupedResult] = Field(
-        ..., description="Results grouped by video"
-    )

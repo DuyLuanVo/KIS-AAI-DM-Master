@@ -223,3 +223,9 @@ weights/
 **/weights/
 
 
+
+# KIS v2
+qdrant_local/
+media/
+backend/logs/
+scripts/missing_images.txt
