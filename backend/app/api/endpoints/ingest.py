@@ -134,7 +134,7 @@ async def upload_images(
             results.append(IngestFileResult(file_name=fname, status="skipped", reason="Lỗi lưu ảnh vào kho lưu trữ."))
             continue
 
-        payload = build_payload(key=key, file_name=safe, caption=caption, source="upload", batch_id=batch_id,
+        payload = build_payload(key=key, file_name=safe, caption=caption, batch_id=batch_id,
                                 batch_name=batch_name, categories=cats, description=description,
                                 objects=objects, width=img.width, height=img.height)
         if not user_batch_name:

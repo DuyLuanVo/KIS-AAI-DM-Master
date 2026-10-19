@@ -3,7 +3,6 @@ YOLO Service for Architectural Element Detection using YOLO-World
 Supports dynamic context-driven open-vocabulary object detection tailored to Vietnamese architecture.
 """
 from typing import List, Dict, Any, Tuple, Optional
-import cv2
 import numpy as np
 from loguru import logger
 

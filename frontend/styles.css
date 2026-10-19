@@ -166,6 +166,7 @@ mark { background: var(--gilt-wash); color: inherit; padding: 0 2px; border-radi
 .match span { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
 .match .kw { border-color: var(--gilt); color: #7a5a14; }
 .match .sem { border-color: #b8cbbf; color: var(--celadon); }
+.match .vis { border-color: #d9b1a9; color: var(--lacquer); }
 .score { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
 
 .skeleton .card-media { animation: pulse 1.2s ease-in-out infinite; }

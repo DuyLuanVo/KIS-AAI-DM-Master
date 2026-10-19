@@ -1,9 +1,0 @@
-{
-  "name": "kis-architect-frontend",
-  "version": "2.0.0",
-  "private": true,
-  "description": "Giao diện tĩnh của KIS Architect. Mặc định được backend phục vụ tại http://localhost:8000/",
-  "scripts": {
-    "serve": "python -m http.server 5500"
-  }
-}

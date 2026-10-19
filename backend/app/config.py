@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     # Mô hình nhúng: "clip" (CLIP + sentence-transformers, mặc định) | "lite" (nhẹ, không cần GPU/tải model; dùng cho test/demo)
     embedder_backend: str = "clip"
     clip_model: str = "ViT-B/32"
+    # Checkpoint CLIP đã fine-tune (scripts/finetune_clip.py), tương đối theo thư mục gốc dự án. Rỗng = CLIP gốc.
+    # Đổi giá trị này thì phải tính lại vector ảnh: python scripts/reembed_images.py
+    clip_finetuned_path: str = ""
+    # Tìm bằng mô tả có thêm nhánh CLIP text -> image (so câu truy vấn trực tiếp với vector ảnh)
+    clip_text_search: bool = True
+    # Ở chế độ hybrid, kết quả chỉ do nhánh CLIP tìm ra được giữ khi cosine >= clip_min_score và không kém kết quả
+    # CLIP tốt nhất của câu truy vấn quá clip_relative_margin. Ngưỡng tương đối vì cosine text-ảnh phụ thuộc độ dài câu
+    # (câu truy vấn ngắn ~0.25, caption đầy đủ ~0.3), một ngưỡng tuyệt đối không hợp cho mọi câu.
+    clip_min_score: float = 0.2
+    clip_relative_margin: float = 0.03
     # Model nhúng caption. Caption là tiếng Anh; dùng model đa ngôn ngữ nếu muốn gõ truy vấn tiếng Việt,
     # ví dụ: sentence-transformers/paraphrase-multilingual-mpnet-base-v2
     text_model: str = "sentence-transformers/all-mpnet-base-v2"

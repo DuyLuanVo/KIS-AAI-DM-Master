@@ -26,6 +26,7 @@ from qdrant_client.models import (
     MatchValue,
     PayloadSchemaType,
     PointStruct,
+    PointVectors,
     TextIndexParams,
     TokenizerType,
     VectorParams,
@@ -87,7 +88,7 @@ class VectorStore:
                     type="text", tokenizer=TokenizerType.PREFIX, min_token_len=2, max_token_len=30, lowercase=True
                 ),
             )
-            for field in ("object_labels", "batch_id", "source", "key"):
+            for field in ("object_labels", "batch_id", "key"):
                 self.client.create_payload_index(self.collection, field, field_schema=PayloadSchemaType.KEYWORD)
         logger.info(f"Đã tạo collection '{self.collection}' (image={image_dim}, caption={caption_dim})")
 
@@ -107,6 +108,19 @@ class VectorStore:
             self._stats_cache = None
         return len(points)
 
+    def update_image_vectors(self, items: Sequence[Dict[str, Any]], image_model: str) -> int:
+        """items: [{"key", "image_vector"}]. Thay vector "image" (vd. sau khi đổi sang CLIP fine-tune), giữ nguyên phần còn lại."""
+        if not items:
+            return 0
+        ids = [point_id_for(it["key"]) for it in items]
+        self.client.update_vectors(
+            self.collection,
+            points=[PointVectors(id=i, vector={"image": list(map(float, it["image_vector"]))}) for i, it in zip(ids, items)],
+            wait=True,
+        )
+        self.client.set_payload(self.collection, payload={"image_model": image_model}, points=ids, wait=True)
+        return len(items)
+
     def delete_batch(self, batch_id: str) -> List[str]:
         flt = Filter(must=[FieldCondition(key="batch_id", match=MatchValue(value=batch_id))])
         keys = [p.payload.get("key") for p in self._scroll(flt, with_payload=["key"])]
@@ -121,13 +135,10 @@ class VectorStore:
 
     # ------------------------------------------------------------ read
     @staticmethod
-    def build_filter(object_labels: Optional[List[str]] = None, source: Optional[str] = None,
-                     batch_id: Optional[str] = None, exclude_keys: Optional[List[str]] = None) -> Optional[Filter]:
+    def build_filter(object_labels: Optional[List[str]] = None, batch_id: Optional[str] = None, exclude_keys: Optional[List[str]] = None) -> Optional[Filter]:
         must, must_not = [], []
         if object_labels:
             must.append(FieldCondition(key="object_labels", match=MatchAny(any=object_labels)))
-        if source:
-            must.append(FieldCondition(key="source", match=MatchValue(value=source)))
         if batch_id:
             must.append(FieldCondition(key="batch_id", match=MatchValue(value=batch_id)))
         if exclude_keys:
@@ -212,19 +223,18 @@ class VectorStore:
     def stats(self) -> Dict[str, Any]:
         if self._stats_cache is not None:
             return self._stats_cache
-        labels, sources, batches = Counter(), Counter(), {}
-        for p in self._scroll(None, with_payload=["object_labels", "source", "batch_id", "batch_name"]):
+        labels, batches, total = Counter(), {}, 0
+        for p in self._scroll(None, with_payload=["object_labels", "batch_id", "batch_name"]):
             pl = p.payload or {}
+            total += 1
             labels.update(pl.get("object_labels") or [])
-            sources[pl.get("source", "dataset")] += 1
-            if pl.get("source") == "upload" and pl.get("batch_id"):
+            if pl.get("batch_id"):
                 b = batches.setdefault(pl["batch_id"], {"batch_id": pl["batch_id"], "name": pl.get("batch_name"), "count": 0})
                 b["count"] += 1
         self._stats_cache = {
-            "total_images": sum(sources.values()),
-            "by_source": dict(sources),
+            "total_images": total,
             "object_labels": [{"label": k, "count": v} for k, v in labels.most_common(40)],
-            "upload_batches": list(batches.values()),
+            "batches": list(batches.values()),
         }
         return self._stats_cache
 

@@ -32,7 +32,7 @@ def clean_caption(text: Optional[str]) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
-def build_payload(*, key: str, file_name: str, caption: str, source: str,
+def build_payload(*, key: str, file_name: str, caption: str,
                   meta: Optional[Dict[str, Any]] = None, batch_id: Optional[str] = None,
                   batch_name: Optional[str] = None, categories: Optional[List[str]] = None,
                   description: Optional[str] = None, objects: Optional[List[Dict[str, Any]]] = None,
@@ -54,7 +54,6 @@ def build_payload(*, key: str, file_name: str, caption: str, source: str,
         "source_url": meta.get("source_url") or "",
         "latitude": meta.get("latitude"),
         "longitude": meta.get("longitude"),
-        "source": source,
         "batch_id": batch_id,
         "batch_name": batch_name,
         "objects": objects,
@@ -73,10 +72,11 @@ def index_items(images: Sequence[Image.Image], payloads: Sequence[Dict[str, Any]
     """Mã hóa một lô ảnh + caption và ghi vào Qdrant."""
     if not payloads:
         return 0
-    img_vecs = get_image_embedder().encode(images)
+    img_emb = get_image_embedder()
+    img_vecs = img_emb.encode(images)
     cap_vecs = get_caption_embedder().encode([p["caption"] for p in payloads])
     items = [
-        {"key": p["key"], "image_vector": iv, "caption_vector": cv, "payload": p}
+        {"key": p["key"], "image_vector": iv, "caption_vector": cv, "payload": {**p, "image_model": img_emb.name}}
         for p, iv, cv in zip(payloads, img_vecs, cap_vecs)
     ]
     return get_store().upsert(items)

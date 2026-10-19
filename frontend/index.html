@@ -1,20 +1,26 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KIS Architect · Kho ảnh kiến trúc Việt Nam</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="styles.css?v=20">
 </head>
+
 <body>
   <header class="topbar">
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 48 32" aria-hidden="true">
         <path d="M2 14 C10 14 14 6 24 6 C34 6 38 14 46 14 L42 17 L6 17 Z" />
-        <rect x="9" y="17" width="3" height="13" /><rect x="22.5" y="17" width="3" height="13" /><rect x="36" y="17" width="3" height="13" />
+        <rect x="9" y="17" width="3" height="13" />
+        <rect x="22.5" y="17" width="3" height="13" />
+        <rect x="36" y="17" width="3" height="13" />
       </svg>
       <div>
         <h1>Kho ảnh kiến trúc Việt Nam</h1>
@@ -22,8 +28,10 @@
       </div>
     </div>
     <nav class="tabs" role="tablist" aria-label="Chức năng">
-      <button class="tab is-active" role="tab" id="tabSearch" aria-selected="true" aria-controls="viewSearch">Tìm kiếm</button>
-      <button class="tab" role="tab" id="tabIngest" aria-selected="false" aria-controls="viewIngest">Thêm ảnh vào kho</button>
+      <button class="tab is-active" role="tab" id="tabSearch" aria-selected="true" aria-controls="viewSearch">Tìm
+        kiếm</button>
+      <button class="tab" role="tab" id="tabIngest" aria-selected="false" aria-controls="viewIngest">Thêm ảnh vào
+        kho</button>
     </nav>
   </header>
 
@@ -38,11 +46,12 @@
       <form id="textForm" class="query-row" autocomplete="off">
         <label for="queryInput" class="sr-only">Mô tả ảnh cần tìm</label>
         <input id="queryInput" class="query-input" type="search"
-               placeholder="Mô tả bằng tiếng Anh, ví dụ: red brick tower with a stepped roof">
-        <select id="textMode" class="query-select" aria-label="Cách so khớp caption">
-          <option value="hybrid">Ngữ nghĩa + từ khóa</option>
-          <option value="semantic">Chỉ ngữ nghĩa</option>
+          placeholder="Mô tả bằng tiếng Anh, ví dụ: red brick tower with a stepped roof">
+        <select id="textMode" class="query-select" aria-label="Cách so khớp">
+          <option value="hybrid">Kết hợp (ngữ nghĩa + từ khóa + ảnh)</option>
+          <option value="semantic">Chỉ ngữ nghĩa caption</option>
           <option value="keyword">Chỉ từ khóa</option>
+          <option value="visual">Chỉ nội dung ảnh (CLIP)</option>
         </select>
         <button class="btn btn-primary" type="submit">Tìm</button>
       </form>
@@ -69,16 +78,8 @@
         </div>
       </div>
 
-      <div class="filter-row">
-        <label class="filter">
-          <span>Nguồn</span>
-          <select id="sourceFilter">
-            <option value="">Tất cả ảnh</option>
-            <option value="dataset">Bộ dữ liệu gốc</option>
-            <option value="upload">Ảnh đã tải lên</option>
-          </select>
-        </label>
-        <div id="labelFilter" class="label-filter" hidden>
+      <div id="labelFilter" class="filter-row" hidden>
+        <div class="label-filter">
           <span>Cấu kiện</span>
           <div id="labelChips" class="chips"></div>
         </div>
@@ -111,17 +112,20 @@
 
         <section class="step">
           <h2><span class="step-no">2</span>Gắn caption</h2>
-          <p class="step-help">Mỗi ảnh cần một caption tiếng Anh mô tả nội dung. Tìm kiếm bằng mô tả sẽ truy vấn trên chính caption này.</p>
+          <p class="step-help">Mỗi ảnh cần một caption tiếng Anh mô tả nội dung. Tìm kiếm bằng mô tả sẽ truy vấn trên
+            chính caption này.</p>
           <label class="btn btn-quiet file-btn">
             <input id="captionFile" type="file" accept=".csv,.json,.jsonl,.txt" hidden>
             Nhập caption từ file CSV / JSON
           </label>
           <details class="format-help">
             <summary>Định dạng file caption</summary>
-            <p>CSV có cột tên ảnh (<code>file</code>, <code>filename</code> hoặc <code>filepath</code>) và cột <code>caption</code>. Ảnh được ghép theo tên file, không phân biệt đường dẫn.</p>
+            <p>CSV có cột tên ảnh (<code>file</code>, <code>filename</code> hoặc <code>filepath</code>) và cột
+              <code>caption</code>. Ảnh được ghép theo tên file, không phân biệt đường dẫn.</p>
             <pre>filepath,caption
 chua_mot_cot.jpg,"A small wooden pagoda on a single stone pillar..."</pre>
-            <p>JSON dạng <code>{"tên_ảnh.jpg": "caption"}</code>, hoặc mảng <code>[{"file": ..., "caption": ...}]</code>, hoặc JSONL mỗi dòng một object.</p>
+            <p>JSON dạng <code>{"tên_ảnh.jpg": "caption"}</code>, hoặc mảng
+              <code>[{"file": ..., "caption": ...}]</code>, hoặc JSONL mỗi dòng một object.</p>
           </details>
           <p id="captionFileStatus" class="status-line"></p>
         </section>
@@ -134,7 +138,8 @@ chua_mot_cot.jpg,"A small wooden pagoda on a single stone pillar..."</pre>
             <input id="batchCats" type="text" placeholder="Chùa, Kiến trúc thời Lê"></label>
           <label class="field"><span>Mô tả chung <em>(tùy chọn)</em></span>
             <textarea id="batchDesc" rows="2"></textarea></label>
-          <label class="check"><input id="detectObjects" type="checkbox"> Nhận diện cấu kiện kiến trúc bằng YOLO-World (chậm hơn)</label>
+          <label class="check"><input id="detectObjects" type="checkbox"> Nhận diện cấu kiện kiến trúc bằng YOLO-World
+            (chậm hơn)</label>
         </section>
 
         <div class="submit-box">
@@ -148,7 +153,8 @@ chua_mot_cot.jpg,"A small wooden pagoda on a single stone pillar..."</pre>
         <div class="review-head" id="reviewHead" hidden>
           <h2>Kiểm tra ảnh và caption</h2>
           <div class="review-tools">
-            <button id="onlyMissing" class="btn btn-quiet btn-sm" type="button" aria-pressed="false">Chỉ hiện ảnh thiếu caption</button>
+            <button id="onlyMissing" class="btn btn-quiet btn-sm" type="button" aria-pressed="false">Chỉ hiện ảnh thiếu
+              caption</button>
             <button id="clearAll" class="btn btn-quiet btn-sm" type="button">Xóa danh sách</button>
           </div>
         </div>
@@ -168,7 +174,9 @@ chua_mot_cot.jpg,"A small wooden pagoda on a single stone pillar..."</pre>
     </div>
     <div class="detail-body">
       <button id="detailClose" class="icon-btn" aria-label="Đóng">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" />
+        </svg>
       </button>
       <h2 id="detailTitle"></h2>
       <p id="detailScore" class="detail-score"></p>
@@ -186,4 +194,5 @@ chua_mot_cot.jpg,"A small wooden pagoda on a single stone pillar..."</pre>
   <div id="toast" class="toast" role="status" hidden></div>
   <script src="script.js?v=20"></script>
 </body>
+
 </html>

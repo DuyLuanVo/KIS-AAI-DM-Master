@@ -77,8 +77,7 @@ let stats = null;
 async function loadStats() {
   try {
     stats = await api('/api/v1/stats');
-    const up = stats.by_source?.upload || 0;
-    $('statsLine').textContent = `${fmtNum(stats.total_images)} ảnh có caption trong kho` + (up ? `, trong đó ${fmtNum(up)} ảnh tải lên` : '');
+    $('statsLine').textContent = `${fmtNum(stats.total_images)} ảnh có caption trong kho`;
     renderLabelChips();
   } catch (e) {
     $('statsLine').textContent = `Không kết nối được máy chủ tại ${API}. Hãy khởi động backend.`;
@@ -104,7 +103,6 @@ function setMode(mode) {
 
 $('textForm').addEventListener('submit', (e) => { e.preventDefault(); runTextSearch(); });
 document.querySelectorAll('.hint').forEach((h) => h.addEventListener('click', () => { $('queryInput').value = h.textContent; runTextSearch(); }));
-$('sourceFilter').addEventListener('change', rerun);
 
 function renderLabelChips() {
   const labels = stats?.object_labels || [];
@@ -121,7 +119,6 @@ function renderLabelChips() {
 
 function filters() {
   return {
-    source: $('sourceFilter').value || null,
     object_labels: S.labels.size ? [...S.labels] : null,
   };
 }
@@ -271,6 +268,7 @@ function matchBadges(hit) {
   const out = [];
   if (hit.match_sources.includes('keyword')) out.push('<span class="kw">từ khóa</span>');
   if (hit.match_sources.includes('semantic')) out.push('<span class="sem">ngữ nghĩa</span>');
+  if (hit.match_sources.includes('visual')) out.push('<span class="vis" title="Khớp trực tiếp với nội dung ảnh (CLIP)">ảnh</span>');
   return `<span class="match">${out.join('')}</span>`;
 }
 
@@ -301,13 +299,14 @@ function openDetail(hit) {
   $('detailTitle').textContent = hit.title;
   const parts = [];
   if (hit.similarity != null) parts.push(`Độ tương đồng ${scoreText(hit)}`);
+  if (hit.clip_score != null) parts.push(`CLIP ${Math.round(Math.max(0, hit.clip_score) * 100)}%`);
   if (hit.matched_terms?.length) parts.push(`khớp từ: ${hit.matched_terms.join(', ')}`);
   $('detailScore').textContent = parts.join('; ');
   $('detailCaption').innerHTML = highlight(hit.caption, S.type === 'text' ? (hit.matched_terms.length ? hit.matched_terms : S.terms) : []);
 
   const rows = [
     ['Tệp', hit.file_name],
-    ['Nguồn', hit.source === 'upload' ? `Tải lên (${hit.batch_name || hit.batch_id})` : 'Bộ dữ liệu Wikimedia Commons'],
+    ['Bộ sưu tập', hit.batch_name],
     ['Thời gian', hit.date],
     ['Tác giả', hit.author],
     ['Giấy phép', hit.license],

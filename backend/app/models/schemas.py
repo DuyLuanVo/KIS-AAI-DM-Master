@@ -15,14 +15,14 @@ class HealthResponse(BaseModel):
 
 class SearchFilters(BaseModel):
     object_labels: Optional[List[str]] = Field(default=None, description="Lọc theo cấu kiện YOLO (khớp bất kỳ)")
-    source: Optional[str] = Field(default=None, description="'dataset' hoặc 'upload'")
     batch_id: Optional[str] = None
 
 
 class TextSearchRequest(SearchFilters):
-    query: str = Field(..., min_length=1, description="Câu mô tả cần tìm trong caption")
+    query: str = Field(..., min_length=1, description="Câu mô tả cần tìm (trong caption và nội dung ảnh)")
     limit: int = Field(default=60, ge=1, le=300)
-    mode: str = Field(default="hybrid", description="'hybrid' (ngữ nghĩa + từ khóa), 'semantic' hoặc 'keyword'")
+    mode: str = Field(default="hybrid", description="'hybrid' (ngữ nghĩa + từ khóa + CLIP), 'semantic', 'keyword' "
+                                                    "hoặc 'visual' (chỉ CLIP text -> image)")
 
 
 class ImageSearchRequest(SearchFilters):
@@ -39,8 +39,9 @@ class SearchHit(BaseModel):
     score: float = Field(..., description="Điểm xếp hạng cuối cùng")
     similarity: Optional[float] = Field(default=None, description="Cosine của vector (ảnh hoặc caption)")
     keyword_score: Optional[float] = Field(default=None, description="Điểm BM25 đã chuẩn hóa 0-1")
+    clip_score: Optional[float] = Field(default=None, description="Cosine CLIP giữa câu truy vấn và ảnh")
     matched_terms: List[str] = []
-    match_sources: List[str] = Field(default=[], description="'semantic', 'keyword', 'image'")
+    match_sources: List[str] = Field(default=[], description="'semantic', 'keyword', 'visual', 'image'")
     file_name: str = ""
     description: str = ""
     categories: List[str] = []
@@ -51,7 +52,6 @@ class SearchHit(BaseModel):
     source_url: str = ""
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    source: str = "dataset"
     batch_id: Optional[str] = None
     batch_name: Optional[str] = None
     objects: List[Dict[str, Any]] = []

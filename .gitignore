@@ -229,3 +229,7 @@ qdrant_local/
 media/
 backend/logs/
 scripts/missing_images.txt
+.DS_Store
+# Cache có thể tạo lại (finetune_clip.py, compare_captions.py)
+models/clip_finetuned/cache/
+scripts/compare_output/embeddings_cache.npz

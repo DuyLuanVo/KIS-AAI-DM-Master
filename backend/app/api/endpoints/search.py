@@ -2,9 +2,11 @@
 Tìm kiếm theo 2 luồng:
 
 * Bằng hình ảnh  -> mã hóa ảnh truy vấn bằng CLIP, so sánh với vector "image" -> ảnh tương đồng.
-* Bằng mô tả     -> truy vấn caption: kết hợp
+* Bằng mô tả     -> kết hợp
       (1) ngữ nghĩa: nhúng câu truy vấn, so với vector "caption"
       (2) từ khóa  : BM25 trên nội dung caption (chỉ mục full-text)
+      (3) hình ảnh : mã hóa câu truy vấn bằng text encoder CLIP (đã fine-tune), so trực tiếp với vector "image"
+                     -> tìm được cả chi tiết có trong ảnh nhưng caption không nhắc tới
   rồi trộn bằng Reciprocal Rank Fusion.
 """
 import base64
@@ -20,7 +22,7 @@ from PIL import Image, UnidentifiedImageError
 from app.config import settings
 from app.database.vector_store import get_store
 from app.models.schemas import ImageSearchRequest, SearchHit, SearchResponse, TextSearchRequest
-from app.services.embedders import get_caption_embedder, get_image_embedder, tokenize
+from app.services.embedders import get_caption_embedder, get_clip_text_embedder, get_image_embedder, tokenize
 from app.services.storage import media_url
 
 router = APIRouter()
@@ -44,7 +46,6 @@ def _to_hit(rank: int, payload: Dict[str, Any], **scores) -> SearchHit:
         source_url=p.get("source_url") or "",
         latitude=p.get("latitude"),
         longitude=p.get("longitude"),
-        source=p.get("source") or "dataset",
         batch_id=p.get("batch_id"),
         batch_name=p.get("batch_name"),
         objects=p.get("objects") or [],
@@ -64,7 +65,7 @@ def _decode_image(data: bytes) -> Image.Image:
 
 def _filter(req) -> Any:
     labels = [l.strip().lower() for l in (req.object_labels or []) if l and l.strip()]
-    return get_store().build_filter(object_labels=labels or None, source=req.source, batch_id=req.batch_id)
+    return get_store().build_filter(object_labels=labels or None, batch_id=req.batch_id)
 
 
 def _image_search(img: Image.Image, limit: int, flt) -> List[SearchHit]:
@@ -93,6 +94,12 @@ async def search_by_text(req: TextSearchRequest):
 
     semantic: List[Dict[str, Any]] = []
     keyword: List[Dict[str, Any]] = []
+    visual: List[Dict[str, Any]] = []
+    clip_text = get_clip_text_embedder()
+    if req.mode == "visual" and clip_text is None:
+        raise HTTPException(status_code=400, detail="Chế độ 'visual' cần backend CLIP (EMBEDDER_BACKEND=clip).")
+    if req.mode in ("hybrid", "visual") and clip_text is not None:
+        visual = store.search_vector("image", clip_text.encode([query])[0], limit=pool, flt=flt)
     if req.mode in ("hybrid", "semantic"):
         qvec = get_caption_embedder().encode([query])[0]
         semantic = store.search_vector("caption", qvec, limit=pool, flt=flt)
@@ -114,16 +121,32 @@ async def search_by_text(req: TextSearchRequest):
         e["keyword_score"] = r["score"] / max_kw
         e["matched"] = r["matched_terms"]
         e["sources"].append("keyword")
+    for rank, r in enumerate(visual):
+        e = fused.setdefault(r["id"], {"payload": r["payload"], "rrf": 0.0, "sources": [], "matched": []})
+        e["rrf"] += 1.0 / (k + rank + 1)
+        e["clip_score"] = r["score"]
+        e["sources"].append("visual")
 
-    ordered = sorted(fused.values(), key=lambda e: e["rrf"], reverse=True)[: req.limit]
-    # Ở chế độ hybrid, kết quả chỉ khớp ngữ nghĩa mà điểm quá thấp thì loại bỏ
-    if req.mode == "hybrid" and keyword:
-        ordered = [e for e in ordered if "keyword" in e["sources"] or e.get("similarity", 0) >= 0.2]
+    ordered = sorted(fused.values(), key=lambda e: e["rrf"], reverse=True)
+    # Ở chế độ hybrid, kết quả chỉ khớp ngữ nghĩa / hình ảnh mà điểm quá thấp thì loại bỏ
+    if req.mode == "hybrid":
+        clip_floor = max(settings.clip_min_score, visual[0]["score"] - settings.clip_relative_margin) if visual else 1.0
+
+        def keep(e) -> bool:
+            if "keyword" in e["sources"] or e.get("similarity", 0) >= 0.2:
+                return True
+            if "visual" in e["sources"] and e["clip_score"] >= clip_floor:
+                return True
+            return not keyword and "semantic" in e["sources"]  # không có từ khóa nào khớp: giữ nhánh ngữ nghĩa
+
+        ordered = [e for e in ordered if keep(e)]
+    ordered = ordered[: req.limit]
 
     hits = [
         _to_hit(
             i + 1, e["payload"], score=round(e["rrf"], 6), similarity=e.get("similarity"),
-            keyword_score=e.get("keyword_score"), matched_terms=e["matched"], match_sources=e["sources"],
+            keyword_score=e.get("keyword_score"), clip_score=e.get("clip_score"), matched_terms=e["matched"],
+            match_sources=e["sources"],
         )
         for i, e in enumerate(ordered)
     ]
@@ -176,13 +199,13 @@ async def similar_images(key: str, limit: int = 60):
 
 
 @router.get("/images/list", response_model=SearchResponse)
-async def list_images(batch_id: Optional[str] = None, source: Optional[str] = None, limit: int = 120):
+async def list_images(batch_id: Optional[str] = None, limit: int = 120):
     """Duyệt ảnh theo lô tải lên hoặc nguồn (không xếp hạng)."""
     t0 = time.time()
     store = get_store()
-    pts = store._scroll(store.build_filter(source=source, batch_id=batch_id), limit=max(1, min(limit, settings.max_limit)))
+    pts = store._scroll(store.build_filter(batch_id=batch_id), limit=max(1, min(limit, settings.max_limit)))
     hits = [_to_hit(i + 1, p.payload, score=0.0) for i, p in enumerate(pts)]
-    return SearchResponse(search_type="browse", query=batch_id or source, total_results=len(hits),
+    return SearchResponse(search_type="browse", query=batch_id, total_results=len(hits),
                           query_time_ms=(time.time() - t0) * 1000, results=hits)
 
 
@@ -196,11 +219,11 @@ async def get_image(key: str):
 
 @router.get("/stats")
 async def stats():
-    from app.services.embedders import get_caption_embedder, get_image_embedder
-
     s = dict(get_store().stats())
     s["collection"] = settings.qdrant_collection
     s["image_model"] = get_image_embedder().name
     s["caption_model"] = get_caption_embedder().name
+    clip_text = get_clip_text_embedder()
+    s["clip_text_model"] = clip_text.name if clip_text else None
     s["storage"] = settings.storage_backend
     return s

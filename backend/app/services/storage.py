@@ -56,6 +56,10 @@ class LocalStorage:
         p = self._path(key)
         return p if p and p.is_file() else None
 
+    def get(self, key: str) -> Optional[bytes]:
+        p = self.local_path(key)
+        return p.read_bytes() if p else None
+
     def presigned_url(self, key: str) -> Optional[str]:
         return None
 
@@ -99,6 +103,12 @@ class MinioStorage:
 
     def local_path(self, key: str) -> Optional[Path]:
         return None
+
+    def get(self, key: str) -> Optional[bytes]:
+        try:
+            return self.client.get_object(Bucket=self.bucket, Key=key.lstrip("/"))["Body"].read()
+        except Exception:
+            return None
 
     def presigned_url(self, key: str) -> Optional[str]:
         return self.client.generate_presigned_url(

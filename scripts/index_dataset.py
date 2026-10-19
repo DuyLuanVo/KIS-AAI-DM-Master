@@ -118,7 +118,7 @@ def main():
                 print(f"  [Lỗi lưu ảnh] {name}: {e}")
                 continue
             images.append(img)
-            payloads.append(build_payload(key=key, file_name=name, caption=cap, source="dataset", meta=meta,
+            payloads.append(build_payload(key=key, file_name=name, caption=cap, meta=meta,
                                           objects=objects, width=img.width, height=img.height))
 
         done += index_items(images, payloads)

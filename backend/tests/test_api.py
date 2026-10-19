@@ -49,6 +49,14 @@ def test_text_search_queries_captions(client, seeded):
     assert "keyword" in top["match_sources"]
 
 
+def test_visual_mode_needs_clip_backend(client, seeded):
+    # Backend lite không có CLIP text encoder: chế độ visual báo lỗi rõ ràng, hybrid vẫn chạy như cũ
+    r = client.post("/api/v1/search/text", json={"query": "brick tower", "mode": "visual"})
+    assert r.status_code == 400
+    top = client.post("/api/v1/search/text", json={"query": "brick tower"}).json()["results"][0]
+    assert "visual" not in top["match_sources"]
+
+
 def test_text_search_plural_matches_singular(client, seeded):
     d = client.post("/api/v1/search/text", json={"query": "pagodas bamboo", "limit": 5}).json()
     assert d["results"][0]["file_name"] == "green_pagoda.png"
@@ -88,7 +96,8 @@ def test_media_served(client, seeded):
 def test_stats(client, seeded):
     s = client.get("/api/v1/stats").json()
     assert s["total_images"] >= len(SAMPLES)
-    assert s["by_source"].get("upload", 0) >= len(SAMPLES)
+    assert "by_source" not in s  # một kho chung, không phân biệt ảnh nạp bằng script hay tải lên
+    assert sum(b["count"] for b in s["batches"]) >= len(SAMPLES)
 
 
 def test_delete_batch(client):
