@@ -259,15 +259,15 @@ function showMore() {
 $('loadMore').addEventListener('click', showMore);
 
 function scoreText(hit) {
-  if (hit.similarity == null) return '';
-  return `${Math.round(Math.max(0, hit.similarity) * 100)}%`;
+  const s = hit.similarity ?? hit.clip_score;
+  if (s == null) return '';
+  return `${Math.round(Math.max(0, s) * 100)}%`;
 }
 
 function matchBadges(hit) {
   if (S.type !== 'text') return '';
   const out = [];
   if (hit.match_sources.includes('keyword')) out.push('<span class="kw">từ khóa</span>');
-  if (hit.match_sources.includes('semantic')) out.push('<span class="sem">ngữ nghĩa</span>');
   if (hit.match_sources.includes('visual')) out.push('<span class="vis" title="Khớp trực tiếp với nội dung ảnh (CLIP)">ảnh</span>');
   return `<span class="match">${out.join('')}</span>`;
 }

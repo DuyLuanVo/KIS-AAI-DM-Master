@@ -57,6 +57,11 @@ def test_visual_mode_needs_clip_backend(client, seeded):
     assert "visual" not in top["match_sources"]
 
 
+def test_semantic_mode_removed(client, seeded):
+    r = client.post("/api/v1/search/text", json={"query": "brick tower", "mode": "semantic"})
+    assert r.status_code == 422
+
+
 def test_text_search_plural_matches_singular(client, seeded):
     d = client.post("/api/v1/search/text", json={"query": "pagodas bamboo", "limit": 5}).json()
     assert d["results"][0]["file_name"] == "green_pagoda.png"

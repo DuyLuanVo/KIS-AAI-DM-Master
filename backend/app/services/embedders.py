@@ -1,18 +1,17 @@
 """
 Bộ mã hóa (embedder) cho hai luồng tìm kiếm:
 
-* ImageEmbedder  : ảnh  -> vector, dùng cho tìm ảnh tương đồng (image -> image).
-* CaptionEmbedder: văn bản -> vector, dùng cho cả caption trong kho lẫn câu truy vấn (text -> caption).
+* ImageEmbedder   : ảnh -> vector, dùng cho tìm ảnh tương đồng (image -> image).
 * ClipTextEmbedder: câu truy vấn -> vector CLIP, cùng không gian với vector ảnh (text -> image).
 
-Backend "clip" dùng CLIP ViT-B/32 cho ảnh và sentence-transformers cho caption. Nếu đặt CLIP_FINETUNED_PATH,
-trọng số fine-tune (scripts/finetune_clip.py) được nạp chồng lên CLIP gốc; ảnh và câu truy vấn dùng chung mô hình đó.
-Backend "lite" chỉ dùng numpy (histogram màu + hashing từ khóa) để chạy test/demo khi không tải được model.
+Backend "clip" dùng CLIP ViT-B/32. Nếu đặt CLIP_FINETUNED_PATH, trọng số fine-tune (scripts/finetune_clip.py)
+được nạp chồng lên CLIP gốc; ảnh và câu truy vấn dùng chung mô hình đó.
+Backend "lite" chỉ dùng numpy (histogram màu) để chạy test/demo khi không tải được model; khi đó tìm bằng mô tả
+chỉ còn nhánh từ khóa.
 Vector luôn được chuẩn hóa L2 nên cosine = tích vô hướng.
 """
 from __future__ import annotations
 
-import hashlib
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -67,26 +66,6 @@ class LiteImageEmbedder:
             hist = np.bincount(idx.ravel(), minlength=512).astype(np.float32)
             vecs.append(np.sqrt(hist))
         return _l2(np.stack(vecs))
-
-
-class LiteCaptionEmbedder:
-    """Hashing bag-of-words + bigram (512 chiều), trọng số log(1+tf)."""
-
-    name = "lite-hashing"
-    dim = 512
-
-    def _bucket(self, term: str) -> int:
-        return int(hashlib.md5(term.encode("utf-8")).hexdigest()[:8], 16) % self.dim
-
-    def encode(self, texts: Sequence[str]) -> np.ndarray:
-        out = np.zeros((len(texts), self.dim), dtype=np.float32)
-        for i, t in enumerate(texts):
-            toks = tokenize(t)
-            terms = toks + [f"{a}_{b}" for a, b in zip(toks, toks[1:])]
-            for term in terms:
-                out[i, self._bucket(term)] += 1.0
-        out = np.log1p(out)
-        return _l2(out)
 
 
 # ---------------------------------------------------------------- real backend
@@ -153,32 +132,11 @@ class ClipTextEmbedder:
         return _l2(feats.cpu().numpy())
 
 
-class SentenceCaptionEmbedder:
-    def __init__(self, model_name: str):
-        from sentence_transformers import SentenceTransformer
-
-        logger.info(f"Đang nạp mô hình nhúng caption {model_name}...")
-        self.model = SentenceTransformer(model_name)
-        self.name = model_name
-        self.dim = int(self.model.get_sentence_embedding_dimension())
-
-    def encode(self, texts: Sequence[str]) -> np.ndarray:
-        emb = self.model.encode(list(texts), batch_size=64, normalize_embeddings=True, convert_to_numpy=True)
-        return emb.astype(np.float32)
-
-
 @lru_cache(maxsize=1)
 def get_image_embedder():
     if settings.embedder_backend == "lite":
         return LiteImageEmbedder()
     return ClipImageEmbedder()
-
-
-@lru_cache(maxsize=1)
-def get_caption_embedder():
-    if settings.embedder_backend == "lite":
-        return LiteCaptionEmbedder()
-    return SentenceCaptionEmbedder(settings.text_model)
 
 
 @lru_cache(maxsize=1)

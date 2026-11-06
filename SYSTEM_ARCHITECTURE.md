@@ -17,16 +17,15 @@ flowchart TD
         FINAL -->|index_dataset.py| ENC
         UP["Trang 'Thêm ảnh vào kho'<br>ảnh + caption"] -->|POST /api/v1/ingest/upload| ENC["Mã hóa"]
         ENC -->|CLIP image encoder| VI["vector image (512)"]
-        ENC -->|sentence-transformer| VC["vector caption (768)"]
         ENC -.->|tùy chọn| YOLO["YOLO-World<br>nhãn cấu kiện"]
-        VI & VC & YOLO --> Q[("Qdrant<br>1 point / ảnh")]
+        VI & YOLO --> Q[("Qdrant<br>1 point / ảnh")]
         ENC --> S[("MinIO / thư mục local<br>ảnh gốc")]
     end
 
     subgraph ON["Trực tuyến: tìm kiếm"]
         U(("Người dùng")) --> WEB["Frontend"] --> API["FastAPI"]
         API -->|ảnh mẫu → CLIP image| Q
-        API -->|mô tả → 3 nhánh, trộn RRF| Q
+        API -->|mô tả → BM25 + CLIP, trộn RRF| Q
         API -->|GET /media/key| S
     end
     FT -.->|CLIP_FINETUNED_PATH| ENC
@@ -48,7 +47,6 @@ Script và trang "Thêm ảnh vào kho" là hai cách nạp vào **cùng một k
 **Qdrant** (`kis_architecture`): mỗi ảnh là một point, ID cố định theo key ảnh (nạp lại thì ghi đè, không nhân bản), gồm:
 
 * vector `image` (512 chiều, CLIP): tìm bằng ảnh và nhánh CLIP của tìm bằng mô tả;
-* vector `caption` (768 chiều, `all-mpnet-base-v2`): nhánh ngữ nghĩa;
 * payload: caption (có chỉ mục full-text cho BM25), metadata Commons, nhãn YOLO, `batch_id` của lần tải lên (để hoàn tác), `image_model` (mô hình đã sinh vector ảnh).
 
 Qdrant chạy bằng Docker (`QDRANT_MODE=server`) hoặc lưu vào thư mục `qdrant_local/` (`local`, chỉ một tiến trình được mở cùng lúc).
@@ -70,9 +68,9 @@ Trên tập test, Recall@1 văn bản → ảnh tăng từ 47,2% lên 76,8%; ả
 
 Checkpoint chỉ chứa phần trọng số đã train và được nạp chồng lên CLIP gốc khi đặt `CLIP_FINETUNED_PATH`. Đổi mô hình thì phải tính lại vector ảnh bằng `reembed_images.py`, vì vector của hai mô hình không so được với nhau.
 
-### Sentence-transformer `all-mpnet-base-v2`
+### Sentence-transformer `all-mpnet-base-v2` (chỉ ở bước chuẩn bị dữ liệu)
 
-Mã hóa caption và câu truy vấn thành vector 768 chiều cho nhánh ngữ nghĩa. Đây cũng là mô hình dùng để so sánh caption ở bước chuẩn bị dữ liệu.
+Dùng trong `compare_captions.py` để đo độ giống nhau giữa caption của hai VLM. Hệ thống tìm kiếm không dùng mô hình này: caption chỉ được so bằng từ khóa, còn phần hiểu nghĩa câu truy vấn do CLIP đảm nhận.
 
 ### YOLO-World (tùy chọn)
 
@@ -82,15 +80,14 @@ Phát hiện đối tượng từ vựng mở với danh sách cấu kiện ki�
 
 **Bằng ảnh**: mã hóa ảnh mẫu bằng CLIP image encoder, tìm cosine trên vector `image`. "Tìm ảnh tương đồng" với một ảnh trong kho dùng lại vector đã lưu, không mã hóa lại.
 
-**Bằng mô tả**: ba nhánh chạy song song rồi trộn bằng Reciprocal Rank Fusion (RRF, k = 60):
+**Bằng mô tả**: hai nhánh chạy song song rồi trộn bằng Reciprocal Rank Fusion (RRF, k = 60):
 
 | Nhánh | So câu truy vấn với | Cách so | Mạnh ở |
 |---|---|---|---|
 | Từ khóa | caption | BM25 trên chỉ mục full-text (biểu diễn thưa) | tên riêng, từ chính xác |
-| Ngữ nghĩa | caption | cosine giữa vector sentence-transformer (biểu diễn dày) | từ đồng nghĩa, cách diễn đạt khác |
-| Nội dung ảnh | ảnh | cosine giữa vector CLIP text và vector `image` | chi tiết có trong ảnh nhưng caption không nhắc tới |
+| Nội dung ảnh | ảnh | cosine giữa vector CLIP text và vector `image` (biểu diễn dày) | cách diễn đạt khác, chi tiết có trong ảnh nhưng caption không nhắc tới |
 
-Ở chế độ kết hợp, kết quả chỉ đến từ nhánh ngữ nghĩa phải có cosine ≥ 0,2; kết quả chỉ đến từ nhánh CLIP phải có cosine ≥ 0,2 và không kém kết quả CLIP tốt nhất của câu đó quá 0,03 (ngưỡng tương đối vì cosine văn bản–ảnh phụ thuộc độ dài câu). Người dùng có thể chọn chạy riêng từng nhánh. Mỗi kết quả ghi rõ nhánh nào đã tìm ra nó.
+Caption đóng hai vai trò: là dữ liệu dạy CLIP (fine-tune) và là nội dung cho nhánh từ khóa. Ở chế độ kết hợp, kết quả chỉ đến từ nhánh CLIP phải có cosine ≥ 0,2; nếu câu truy vấn có từ khóa khớp, chúng còn phải không kém kết quả CLIP tốt nhất của câu đó quá 0,03 (ngưỡng tương đối vì cosine văn bản–ảnh phụ thuộc độ dài câu). Người dùng có thể chọn chạy riêng từng nhánh. Mỗi kết quả ghi rõ nhánh nào đã tìm ra nó.
 
 Mọi kiểu tìm đều lọc được theo nhãn cấu kiện YOLO.
 
@@ -98,7 +95,7 @@ Mọi kiểu tìm đều lọc được theo nhãn cấu kiện YOLO.
 
 | Method | Đường dẫn | Chức năng |
 |---|---|---|
-| POST | `/api/v1/search/text` | Tìm bằng mô tả; `mode`: `hybrid`, `semantic`, `keyword`, `visual` |
+| POST | `/api/v1/search/text` | Tìm bằng mô tả; `mode`: `hybrid`, `keyword`, `visual` |
 | POST | `/api/v1/search/image` | Tìm bằng ảnh (base64) |
 | POST | `/api/v1/search/image/upload` | Tìm bằng ảnh (multipart, tiện thử trên Swagger) |
 | GET | `/api/v1/images/similar?key=` | Ảnh tương đồng với một ảnh trong kho |
@@ -116,7 +113,7 @@ Mọi kiểu tìm đều lọc được theo nhãn cấu kiện YOLO.
 |---|---|
 | Giao diện | HTML, CSS, JavaScript thuần; backend phục vụ tại cổng 8000 |
 | API | FastAPI, Uvicorn, Pydantic |
-| Mô hình | PyTorch, OpenAI CLIP, sentence-transformers, Ultralytics YOLO-World |
+| Mô hình | PyTorch, OpenAI CLIP, Ultralytics YOLO-World (sentence-transformers chỉ dùng khi so sánh caption) |
 | Vector DB | Qdrant |
 | Lưu ảnh | MinIO (S3) hoặc thư mục local |
 | Test | pytest, Qdrant in-memory, embedder `lite` (không cần GPU hay tải mô hình) |

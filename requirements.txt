@@ -5,3 +5,4 @@ pandas>=2.0.0
 tqdm>=4.64.0
 requests>=2.31.0
 matplotlib>=3.7.0   # scripts/make_finetune_report.py
+sentence-transformers>=2.6.0   # scripts/compare_captions.py (so sánh caption 2 VLM)

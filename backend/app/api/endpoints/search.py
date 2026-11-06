@@ -3,10 +3,9 @@ Tìm kiếm theo 2 luồng:
 
 * Bằng hình ảnh  -> mã hóa ảnh truy vấn bằng CLIP, so sánh với vector "image" -> ảnh tương đồng.
 * Bằng mô tả     -> kết hợp
-      (1) ngữ nghĩa: nhúng câu truy vấn, so với vector "caption"
-      (2) từ khóa  : BM25 trên nội dung caption (chỉ mục full-text)
-      (3) hình ảnh : mã hóa câu truy vấn bằng text encoder CLIP (đã fine-tune), so trực tiếp với vector "image"
-                     -> tìm được cả chi tiết có trong ảnh nhưng caption không nhắc tới
+      (1) từ khóa : BM25 trên nội dung caption (chỉ mục full-text)
+      (2) hình ảnh: mã hóa câu truy vấn bằng text encoder CLIP (đã fine-tune), so trực tiếp với vector "image"
+                    -> hiểu cách diễn đạt khác và cả chi tiết có trong ảnh nhưng caption không nhắc tới
   rồi trộn bằng Reciprocal Rank Fusion.
 """
 import base64
@@ -22,7 +21,7 @@ from PIL import Image, UnidentifiedImageError
 from app.config import settings
 from app.database.vector_store import get_store
 from app.models.schemas import ImageSearchRequest, SearchHit, SearchResponse, TextSearchRequest
-from app.services.embedders import get_caption_embedder, get_clip_text_embedder, get_image_embedder, tokenize
+from app.services.embedders import get_clip_text_embedder, get_image_embedder, tokenize
 from app.services.storage import media_url
 
 router = APIRouter()
@@ -81,7 +80,7 @@ def _vector_hits(vec, limit: int, flt) -> List[SearchHit]:
     ]
 
 
-# ------------------------------------------------------------------ text -> caption
+# ------------------------------------------------------------------ text -> ảnh
 @router.post("/search/text", response_model=SearchResponse)
 async def search_by_text(req: TextSearchRequest):
     t0 = time.time()
@@ -92,7 +91,6 @@ async def search_by_text(req: TextSearchRequest):
     flt = _filter(req)
     pool = min(max(req.limit * 2, 100), settings.max_limit * 2)
 
-    semantic: List[Dict[str, Any]] = []
     keyword: List[Dict[str, Any]] = []
     visual: List[Dict[str, Any]] = []
     clip_text = get_clip_text_embedder()
@@ -100,23 +98,14 @@ async def search_by_text(req: TextSearchRequest):
         raise HTTPException(status_code=400, detail="Chế độ 'visual' cần backend CLIP (EMBEDDER_BACKEND=clip).")
     if req.mode in ("hybrid", "visual") and clip_text is not None:
         visual = store.search_vector("image", clip_text.encode([query])[0], limit=pool, flt=flt)
-    if req.mode in ("hybrid", "semantic"):
-        qvec = get_caption_embedder().encode([query])[0]
-        semantic = store.search_vector("caption", qvec, limit=pool, flt=flt)
     if req.mode in ("hybrid", "keyword"):
         keyword = store.keyword_search(query, limit=pool, flt=flt)
 
     fused: Dict[str, Dict[str, Any]] = {}
     k = settings.rrf_k
-    for rank, r in enumerate(semantic):
-        e = fused.setdefault(r["id"], {"payload": r["payload"], "rrf": 0.0, "sources": [], "matched": []})
-        e["rrf"] += 1.0 / (k + rank + 1)
-        e["similarity"] = r["score"]
-        e["sources"].append("semantic")
     max_kw = keyword[0]["score"] if keyword else 1.0
     for rank, r in enumerate(keyword):
         e = fused.setdefault(r["id"], {"payload": r["payload"], "rrf": 0.0, "sources": [], "matched": []})
-        # Từ khóa xuất hiện nguyên văn trong caption là tín hiệu mạnh: trọng số 1.0 như ngữ nghĩa
         e["rrf"] += 1.0 / (k + rank + 1)
         e["keyword_score"] = r["score"] / max_kw
         e["matched"] = r["matched_terms"]
@@ -128,24 +117,22 @@ async def search_by_text(req: TextSearchRequest):
         e["sources"].append("visual")
 
     ordered = sorted(fused.values(), key=lambda e: e["rrf"], reverse=True)
-    # Ở chế độ hybrid, kết quả chỉ khớp ngữ nghĩa / hình ảnh mà điểm quá thấp thì loại bỏ
+    # Ở chế độ hybrid, kết quả chỉ do CLIP tìm ra mà điểm quá thấp thì loại bỏ.
+    # Không có từ khóa nào khớp thì CLIP là tín hiệu duy nhất: chỉ áp ngưỡng tuyệt đối.
     if req.mode == "hybrid":
-        clip_floor = max(settings.clip_min_score, visual[0]["score"] - settings.clip_relative_margin) if visual else 1.0
+        clip_floor = settings.clip_min_score
+        if keyword and visual:
+            clip_floor = max(clip_floor, visual[0]["score"] - settings.clip_relative_margin)
 
         def keep(e) -> bool:
-            if "keyword" in e["sources"] or e.get("similarity", 0) >= 0.2:
-                return True
-            if "visual" in e["sources"] and e["clip_score"] >= clip_floor:
-                return True
-            return not keyword and "semantic" in e["sources"]  # không có từ khóa nào khớp: giữ nhánh ngữ nghĩa
+            return "keyword" in e["sources"] or e["clip_score"] >= clip_floor
 
         ordered = [e for e in ordered if keep(e)]
     ordered = ordered[: req.limit]
 
     hits = [
         _to_hit(
-            i + 1, e["payload"], score=round(e["rrf"], 6), similarity=e.get("similarity"),
-            keyword_score=e.get("keyword_score"), clip_score=e.get("clip_score"), matched_terms=e["matched"],
+            i + 1, e["payload"], score=round(e["rrf"], 6), keyword_score=e.get("keyword_score"), clip_score=e.get("clip_score"), matched_terms=e["matched"],
             match_sources=e["sources"],
         )
         for i, e in enumerate(ordered)
@@ -222,7 +209,6 @@ async def stats():
     s = dict(get_store().stats())
     s["collection"] = settings.qdrant_collection
     s["image_model"] = get_image_embedder().name
-    s["caption_model"] = get_caption_embedder().name
     clip_text = get_clip_text_embedder()
     s["clip_text_model"] = clip_text.name if clip_text else None
     s["storage"] = settings.storage_backend

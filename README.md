@@ -5,9 +5,9 @@ Hệ thống tìm kiếm kho ảnh công trình kiến trúc Việt Nam theo hai
 | Người dùng tìm bằng | Hệ thống xử lý |
 |---|---|
 | **Hình ảnh** (chọn file, kéo thả, dán Ctrl+V) | Mã hóa ảnh bằng **CLIP ViT-B/32 đã fine-tune** trên bộ dữ liệu rồi so cosine với vector ảnh trong kho → trả về ảnh tương đồng |
-| **Mô tả bằng chữ** | Trộn 3 nhánh bằng Reciprocal Rank Fusion: (1) so ngữ nghĩa câu truy vấn với vector caption (sentence-transformers), (2) so từ khóa bằng BM25 trên chỉ mục full-text của caption, (3) mã hóa câu truy vấn bằng **text encoder của CLIP** và so trực tiếp với vector ảnh, nên tìm được cả chi tiết có trong ảnh mà caption không nhắc tới. Từ khớp được tô vàng trong kết quả |
+| **Mô tả bằng chữ** | Trộn 2 nhánh bằng Reciprocal Rank Fusion: (1) so từ khóa bằng BM25 trên chỉ mục full-text của caption, (2) mã hóa câu truy vấn bằng **text encoder của CLIP** và so trực tiếp với vector ảnh, nên hiểu được cách diễn đạt khác và cả chi tiết có trong ảnh mà caption không nhắc tới. Từ khớp được tô vàng trong kết quả |
 
-Mỗi ảnh trong Qdrant có **2 vector có tên** (`image`, `caption`) và payload chứa caption gốc cùng metadata (tên công trình, tác giả, giấy phép, nguồn Wikimedia…). Caption lấy từ `scripts/compare_output/captions_final.csv` (kết quả so sánh caption Qwen và Gemma 4).
+Mỗi ảnh trong Qdrant có **vector `image`** (CLIP) và payload chứa caption gốc cùng metadata (tên công trình, tác giả, giấy phép, nguồn Wikimedia…). Caption lấy từ `scripts/compare_output/captions_final.csv` (kết quả so sánh caption Qwen và Gemma 4).
 
 ```mermaid
 flowchart LR
@@ -15,10 +15,9 @@ flowchart LR
     UI -->|mô tả| T[/search/text/]
     UI -->|ảnh + caption| U[/ingest/upload/]
     A --> CLIP[CLIP image encoder] --> QI[(Qdrant: vector image)]
-    T --> ST[Sentence encoder] --> QC[(Qdrant: vector caption)]
-    T --> KW[BM25 trên caption full-text] --> QC
+    T --> KW[BM25 trên caption full-text] --> QC[(Qdrant: payload caption)]
     T --> CT[CLIP text encoder] --> QI
-    U --> CLIP & ST --> Q[(Qdrant)]
+    U --> CLIP --> Q[(Qdrant)]
     U --> S[(MinIO / thư mục local)]
 ```
 
@@ -52,7 +51,7 @@ python scripts/index_dataset.py               # toàn bộ 7.756 ảnh, tự b�
 * Đọc `scripts/compare_output/captions_final.csv`; ảnh được tìm **theo tên file** trong `data/vietnam_architecture/` (không phụ thuộc đường dẫn cũ trong CSV), metadata đọc từ file `.json` cùng tên.
 * `--recreate`: xóa collection và nạp lại (bắt buộc khi đổi model nhúng).
 * `--yolo`: nhận diện thêm cấu kiện kiến trúc bằng YOLO-World để lọc theo cấu kiện (chậm).
-* Lần đầu chạy sẽ tải CLIP (~340 MB) và all-mpnet-base-v2 (~420 MB; đã có sẵn nếu từng chạy `compare_captions.py`).
+* Lần đầu chạy sẽ tải CLIP (~340 MB).
 
 ### 4. Fine-tune CLIP và dùng trong hệ thống
 
@@ -108,7 +107,7 @@ python -m uvicorn app.main:app --port 8000
 ## Sử dụng
 
 **Tìm kiếm**
-* *Bằng mô tả*: gõ câu tiếng Anh (caption là tiếng Anh), ví dụ `red brick Cham tower with a stepped roof`. Mặc định kết hợp cả 3 nhánh; có thể chọn chỉ so ngữ nghĩa caption, chỉ so từ khóa, hoặc chỉ so nội dung ảnh (CLIP). Kết quả do nhánh CLIP tìm ra có nhãn "ảnh".
+* *Bằng mô tả*: gõ câu tiếng Anh (caption là tiếng Anh), ví dụ `red brick Cham tower with a stepped roof`. Mặc định kết hợp cả 2 nhánh; có thể chọn chỉ so từ khóa hoặc chỉ so nội dung ảnh (CLIP). Kết quả do nhánh CLIP tìm ra có nhãn "ảnh".
 * *Bằng hình ảnh*: kéo thả, chọn file hoặc dán ảnh (Ctrl+V ở bất kỳ đâu trên trang tìm kiếm).
 * Bấm một ảnh để xem caption đầy đủ, metadata, nguồn gốc và **Tìm ảnh tương đồng** (dùng lại vector đã lưu, không mã hóa lại).
 * Lọc theo cấu kiện (khi đã chạy YOLO).
@@ -132,7 +131,7 @@ chua_mot_cot.jpg,"A small wooden pagoda on a single stone pillar in a lotus pond
 
 | Method | Đường dẫn | Mô tả |
 |---|---|---|
-| POST | `/api/v1/search/text` | `{"query", "limit", "mode": "hybrid\|semantic\|keyword\|visual", "object_labels"}` |
+| POST | `/api/v1/search/text` | `{"query", "limit", "mode": "hybrid\|keyword\|visual", "object_labels"}` |
 | POST | `/api/v1/search/image` | `{"image_base64", "limit", ...bộ lọc}` |
 | POST | `/api/v1/search/image/upload` | multipart `file` (tiện thử trên Swagger) |
 | GET | `/api/v1/images/similar?key=` | Ảnh tương đồng với một ảnh trong kho |
@@ -160,7 +159,7 @@ backend/app/
   api/endpoints/ingest.py    nạp ảnh + caption, hoàn tác
   api/endpoints/media.py     phục vụ ảnh
   database/vector_store.py   Qdrant: 2 vector có tên, BM25 trên caption
-  services/embedders.py      CLIP (gốc hoặc fine-tune) / sentence-transformers (và bản lite cho test)
+  services/embedders.py      CLIP (gốc hoặc fine-tune) cho ảnh và câu truy vấn (và bản lite cho test)
   services/indexer.py        dựng payload + lập chỉ mục dùng chung
   services/storage.py        MinIO hoặc thư mục local
   services/yolo_service.py   YOLO-World (tùy chọn)

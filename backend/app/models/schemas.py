@@ -21,8 +21,8 @@ class SearchFilters(BaseModel):
 class TextSearchRequest(SearchFilters):
     query: str = Field(..., min_length=1, description="Câu mô tả cần tìm (trong caption và nội dung ảnh)")
     limit: int = Field(default=60, ge=1, le=300)
-    mode: str = Field(default="hybrid", description="'hybrid' (ngữ nghĩa + từ khóa + CLIP), 'semantic', 'keyword' "
-                                                    "hoặc 'visual' (chỉ CLIP text -> image)")
+    mode: str = Field(default="hybrid", pattern="^(hybrid|keyword|visual)$",
+                      description="'hybrid' (từ khóa + CLIP), 'keyword' hoặc 'visual' (chỉ CLIP text -> image)")
 
 
 class ImageSearchRequest(SearchFilters):
@@ -37,11 +37,11 @@ class SearchHit(BaseModel):
     title: str
     caption: str
     score: float = Field(..., description="Điểm xếp hạng cuối cùng")
-    similarity: Optional[float] = Field(default=None, description="Cosine của vector (ảnh hoặc caption)")
+    similarity: Optional[float] = Field(default=None, description="Cosine giữa vector ảnh truy vấn và ảnh kết quả")
     keyword_score: Optional[float] = Field(default=None, description="Điểm BM25 đã chuẩn hóa 0-1")
     clip_score: Optional[float] = Field(default=None, description="Cosine CLIP giữa câu truy vấn và ảnh")
     matched_terms: List[str] = []
-    match_sources: List[str] = Field(default=[], description="'semantic', 'keyword', 'visual', 'image'")
+    match_sources: List[str] = Field(default=[], description="'keyword', 'visual', 'image'")
     file_name: str = ""
     description: str = ""
     categories: List[str] = []

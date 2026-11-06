@@ -1,6 +1,6 @@
 """
 Logic lập chỉ mục dùng chung cho API tải lên và script index_dataset.py:
-ảnh + caption -> (vector ảnh, vector caption, payload) -> Qdrant.
+ảnh + caption -> (vector ảnh, payload chứa caption) -> Qdrant.
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from PIL import Image
 
 from app.database.vector_store import get_store
-from app.services.embedders import get_caption_embedder, get_image_embedder
+from app.services.embedders import get_image_embedder
 
 _PAGEID_RE = re.compile(r"_\d{5,}$")
 _NOISE_RE = re.compile(r"\(\d{6,}\)|\s-\s\d{6,}|\.(png|jpe?g|webp|tiff?)$", re.IGNORECASE)
@@ -65,18 +65,17 @@ def build_payload(*, key: str, file_name: str, caption: str,
 
 
 def ensure_collection(recreate: bool = False) -> None:
-    get_store().ensure_collection(get_image_embedder().dim, get_caption_embedder().dim, recreate=recreate)
+    get_store().ensure_collection(get_image_embedder().dim, recreate=recreate)
 
 
 def index_items(images: Sequence[Image.Image], payloads: Sequence[Dict[str, Any]]) -> int:
-    """Mã hóa một lô ảnh + caption và ghi vào Qdrant."""
+    """Mã hóa một lô ảnh và ghi vào Qdrant cùng caption."""
     if not payloads:
         return 0
     img_emb = get_image_embedder()
     img_vecs = img_emb.encode(images)
-    cap_vecs = get_caption_embedder().encode([p["caption"] for p in payloads])
     items = [
-        {"key": p["key"], "image_vector": iv, "caption_vector": cv, "payload": {**p, "image_model": img_emb.name}}
-        for p, iv, cv in zip(payloads, img_vecs, cap_vecs)
+        {"key": p["key"], "image_vector": iv, "payload": {**p, "image_model": img_emb.name}}
+        for p, iv in zip(payloads, img_vecs)
     ]
     return get_store().upsert(items)

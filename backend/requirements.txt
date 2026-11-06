@@ -11,12 +11,10 @@ qdrant-client>=1.12.0
 boto3>=1.28.0
 
 # Mo hinh nhung
-#   anh    : CLIP ViT-B/32 (goi openai-clip)
-#   caption: sentence-transformers (all-mpnet-base-v2, giong model o compare_captions.py)
+#   anh va cau truy van: CLIP ViT-B/32 (goi openai-clip)
 torch>=2.0.0
 torchvision>=0.15.0
 openai-clip
-sentence-transformers>=2.6.0
 pillow>=10.0.0
 numpy>=1.24.0
 

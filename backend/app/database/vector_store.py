@@ -1,11 +1,9 @@
 """
 Kho vector Qdrant cho ảnh kiến trúc.
 
-Mỗi điểm (point) là một ảnh với 2 vector có tên:
-* "image"   : embedding ảnh (CLIP)               -> tìm bằng ảnh
-* "caption" : embedding caption (sentence model) -> tìm bằng mô tả
-
-Payload chứa caption gốc (có chỉ mục full-text) và metadata công trình.
+Mỗi điểm (point) là một ảnh với vector "image" (CLIP), dùng cho cả tìm bằng ảnh lẫn tìm bằng mô tả
+(câu truy vấn mã hóa bằng text encoder CLIP). Payload chứa caption gốc (có chỉ mục full-text cho BM25)
+và metadata công trình.
 """
 from __future__ import annotations
 
@@ -58,7 +56,7 @@ class VectorStore:
         logger.info(f"Qdrant mode={mode}, collection={self.collection}")
 
     # ------------------------------------------------------------ schema
-    def ensure_collection(self, image_dim: int, caption_dim: int, recreate: bool = False) -> None:
+    def ensure_collection(self, image_dim: int, recreate: bool = False) -> None:
         exists = self.client.collection_exists(self.collection)
         if exists and recreate:
             self.client.delete_collection(self.collection)
@@ -66,8 +64,9 @@ class VectorStore:
         if exists:
             params = self.client.get_collection(self.collection).config.params.vectors
             dims = {k: v.size for k, v in params.items()} if isinstance(params, dict) else {}
-            want = {"image": image_dim, "caption": caption_dim}
-            if dims != want:
+            want = {"image": image_dim}
+            # Collection tạo trước khi bỏ nhánh ngữ nghĩa còn vector "caption": không dùng nữa nhưng vẫn đọc được
+            if dims.get("image") != image_dim:
                 raise RuntimeError(
                     f"Collection '{self.collection}' có kích thước vector {dims}, khác cấu hình hiện tại {want}. "
                     "Hãy chạy lại: python scripts/index_dataset.py --recreate"
@@ -77,7 +76,6 @@ class VectorStore:
             self.collection,
             vectors_config={
                 "image": VectorParams(size=image_dim, distance=Distance.COSINE),
-                "caption": VectorParams(size=caption_dim, distance=Distance.COSINE),
             },
         )
         if self.mode == "server":
@@ -90,15 +88,15 @@ class VectorStore:
             )
             for field in ("object_labels", "batch_id", "key"):
                 self.client.create_payload_index(self.collection, field, field_schema=PayloadSchemaType.KEYWORD)
-        logger.info(f"Đã tạo collection '{self.collection}' (image={image_dim}, caption={caption_dim})")
+        logger.info(f"Đã tạo collection '{self.collection}' (image={image_dim})")
 
     # ------------------------------------------------------------ write
     def upsert(self, items: Sequence[Dict[str, Any]]) -> int:
-        """items: [{"key", "image_vector", "caption_vector", "payload"}]"""
+        """items: [{"key", "image_vector", "payload"}]"""
         points = [
             PointStruct(
                 id=point_id_for(it["key"]),
-                vector={"image": list(map(float, it["image_vector"])), "caption": list(map(float, it["caption_vector"]))},
+                vector={"image": list(map(float, it["image_vector"]))},
                 payload={**it["payload"], "key": it["key"]},
             )
             for it in items
