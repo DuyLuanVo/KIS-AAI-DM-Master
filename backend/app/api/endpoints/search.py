@@ -21,7 +21,7 @@ from PIL import Image, UnidentifiedImageError
 from app.config import settings
 from app.database.vector_store import get_store
 from app.models.schemas import ImageSearchRequest, SearchHit, SearchResponse, TextSearchRequest
-from app.services.embedders import get_clip_text_embedder, get_image_embedder, tokenize
+from app.services.embedders import get_clip_text_embedder, get_image_embedder, to_rgb, tokenize
 from app.services.storage import media_url
 
 router = APIRouter()
@@ -57,7 +57,7 @@ def _decode_image(data: bytes) -> Image.Image:
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
-        return img.convert("RGB")
+        return to_rgb(img)
     except (UnidentifiedImageError, OSError):
         raise HTTPException(status_code=400, detail="Tệp tải lên không phải ảnh hợp lệ (hỗ trợ JPG, PNG, WEBP...).")
 

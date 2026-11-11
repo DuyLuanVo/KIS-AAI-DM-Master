@@ -31,6 +31,7 @@ from PIL import Image  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.database.vector_store import get_store  # noqa: E402
+from app.services.embedders import to_rgb  # noqa: E402
 from app.services.indexer import build_payload, clean_caption, ensure_collection, index_items  # noqa: E402
 from app.services.storage import get_storage  # noqa: E402
 
@@ -102,7 +103,7 @@ def main():
                 missing.append(name)
                 continue
             try:
-                img = Image.open(path).convert("RGB")
+                img = to_rgb(Image.open(path))
             except Exception as e:
                 print(f"  [Lỗi đọc ảnh] {name}: {e}")
                 missing.append(name)

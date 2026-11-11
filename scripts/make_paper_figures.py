@@ -1,7 +1,6 @@
 """
-Sinh các hình phần dữ liệu và kiến trúc cho bài báo (bổ sung cho make_finetune_report.py).
+Sinh hình phần dữ liệu cho bài báo (bổ sung cho make_finetune_report.py).
 
-  reports/clip_finetune/hinh0_pipeline.png     sơ đồ pipeline: thu thập -> caption -> fine-tune -> triển khai
   reports/clip_finetune/hinh5_du_lieu.png      (a) độ tương đồng caption Qwen/Gemma, (b) độ dài caption,
                                                (c) loại ảnh
 
@@ -18,7 +17,6 @@ import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -27,47 +25,6 @@ from make_finetune_report import CM, C_FT, C_PRE, INK, INK2, MUTED, panel, save,
 OUT = ROOT / "reports" / "clip_finetune"
 CMP = ROOT / "scripts" / "compare_output"
 W = 16.5 * CM  # vùng chữ của mẫu bài báo (A4, lề trái 2,5 cm, phải 2 cm)
-
-
-def pipeline():
-    fig, ax = plt.subplots(figsize=(W, 6.2 * CM))
-    ax.set_xlim(0, 100)
-    ax.set_ylim(0, 40)
-    ax.axis("off")
-    stages = [  # (x, y, tiêu đề, chi tiết, màu viền)
-        (1, 23, "Thu thập", "Wikimedia Commons\nPetScan, độ sâu 3\n7.846 ảnh + metadata", INK2),
-        (21, 23, "Làm sạch", "cạnh ngắn ≥ 224 px\ntỉ lệ ≤ 2.5; pHash ≤ 4\n7.762 ảnh sạch", INK2),
-        (41, 23, "Sinh caption", "Qwen3.6 & Gemma 4\n15–40 từ, tiếng Anh\nchỉ tả điều nhìn thấy", INK2),
-        (61, 23, "Đối chiếu chéo", "cosine 2 caption\nngưỡng 0.60\n861 ảnh xem thủ công", INK2),
-        (81, 23, "Bộ dữ liệu", "7.756 cặp\nảnh – caption\ncaptions_final.csv", INK2),
-        (81, 3, "Fine-tune CLIP", "ViT-B/32, 4 block cuối\nInfoNCE đối xứng\nchia 80/10/10", C_FT),
-        (61, 3, "Lập chỉ mục", "Qdrant: vector ảnh,\nvector caption\nMinIO / thư mục ảnh", INK2),
-        (41, 3, "Truy vấn lai", "BM25, ngữ nghĩa,\nCLIP văn bản → ảnh\ntrộn bằng RRF", C_FT),
-        (21, 3, "API FastAPI", "tìm bằng mô tả / ảnh\nảnh tương đồng\nnạp ảnh mới", INK2),
-        (1, 3, "Giao diện web", "tìm kiếm, xem chi tiết\nthêm ảnh vào kho\nhoàn tác lần nạp", INK2),
-    ]
-    bw, bh = 18, 14
-    for x, y, title, body, ec in stages:
-        ax.add_patch(FancyBboxPatch((x, y), bw, bh, boxstyle="round,pad=0,rounding_size=1.2",
-                                    fc="white", ec=ec, lw=1.0 if ec == INK2 else 1.6))
-        ax.text(x + bw / 2, y + bh - 2.4, title, ha="center", va="center", fontsize=7.5, fontweight="bold",
-                color=C_FT if ec == C_FT else INK)
-        ax.text(x + bw / 2, y + 5.2, body, ha="center", va="center", fontsize=6.2, color=INK2, linespacing=1.35)
-
-    def arrow(p, q):
-        ax.add_patch(FancyArrowPatch(p, q, arrowstyle="-|>", mutation_scale=7, lw=0.8, color=INK2,
-                                     shrinkA=0, shrinkB=0))
-
-    for i in range(4):  # hàng trên: trái -> phải
-        arrow((1 + 20 * i + bw, 30), (1 + 20 * (i + 1), 30))
-    arrow((90, 23), (90, 17))  # xuống
-    for i in range(4):  # hàng dưới: phải -> trái
-        x0 = 81 - 20 * i
-        arrow((x0, 10), (x0 - 20 + bw, 10))
-    ax.text(50, 39.2, "Khai thác dữ liệu (offline)", ha="center", va="center", fontsize=7, color=MUTED,
-            style="italic")
-    ax.text(50, 0.4, "Huấn luyện và triển khai", ha="center", va="center", fontsize=7, color=MUTED, style="italic")
-    save(fig, OUT, "hinh0_pipeline")
 
 
 def data_stats():
@@ -129,5 +86,4 @@ def data_stats():
 
 if __name__ == "__main__":
     style()
-    pipeline()
     data_stats()

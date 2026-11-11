@@ -27,7 +27,7 @@ from PIL import Image  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.database.vector_store import get_store  # noqa: E402
-from app.services.embedders import get_image_embedder  # noqa: E402
+from app.services.embedders import get_image_embedder, to_rgb  # noqa: E402
 from app.services.storage import get_storage  # noqa: E402
 
 
@@ -36,9 +36,9 @@ def load_image(key: str, storage):
     if key.startswith("dataset/"):
         p = Path(settings.dataset_dir) / key.split("/", 1)[1]
         if p.is_file():
-            return Image.open(p).convert("RGB")
+            return to_rgb(Image.open(p))
     data = storage.get(key)
-    return Image.open(io.BytesIO(data)).convert("RGB") if data else None
+    return to_rgb(Image.open(io.BytesIO(data))) if data else None
 
 
 def main():

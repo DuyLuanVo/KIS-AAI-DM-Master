@@ -24,6 +24,7 @@ from PIL import Image, UnidentifiedImageError
 from app.config import settings
 from app.database.vector_store import get_store
 from app.models.schemas import IngestFileResult, IngestResponse
+from app.services.embedders import to_rgb
 from app.services.indexer import build_payload, clean_caption, index_items, title_from_filename
 from app.services.storage import get_storage, media_url
 
@@ -104,7 +105,7 @@ async def upload_images(
         try:
             img = Image.open(io.BytesIO(data))
             img.load()
-            img = img.convert("RGB")
+            img = to_rgb(img)
         except (UnidentifiedImageError, OSError):
             results.append(IngestFileResult(file_name=fname, status="skipped", reason="Không đọc được tệp ảnh."))
             continue

@@ -15,6 +15,7 @@ font Arial 8 pt, rộng 1 cột (8,8 cm) hoặc 2 cột (18 cm), PNG 300 dpi.
     python scripts/make_finetune_report.py
 """
 import argparse
+import math
 import json
 import sys
 import textwrap
@@ -26,7 +27,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from finetune_clip import (CKPT_NAME, ClipSplit, encode_all, evaluate, load_checkpoint, load_pairs,  # noqa: E402
+from finetune_clip import (CKPT_NAME, ClipSplit, encode_all, evaluate, load_checkpoint, load_dedup, load_pairs,  # noqa: E402
                            relevance_labels)
 
 import clip  # noqa: E402
@@ -124,17 +125,31 @@ def fig_training(metrics, out):
     hist, base, best = metrics["history"], metrics["pretrained"]["val"], metrics["best_epoch"]
     ep = [0] + [h["epoch"] for h in hist]
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(W2, 5.6 * CM))
-    a1.plot(ep[1:], [h["loss"] for h in hist], color=C_FT, marker="o", ms=3)
-    a1.set_xlabel("Epoch"); a1.set_ylabel("Loss contrastive (train)")
+    pre = metrics["pretrained"]
+    tr_x, tr_y = ep[1:], [h["loss"] for h in hist]
+    if "train_loss" in pre:  # loss của CLIP gốc trên tập train, cho đường train bắt đầu từ epoch 0 như đường val
+        tr_x, tr_y = ep, [pre["train_loss"]] + tr_y
+    a1.plot(tr_x, tr_y, color=C_FT, marker="o", ms=3, label="Train")
+    if "loss" in hist[0]["val"]:
+        a1.plot(ep, [base["loss"]] + [h["val"]["loss"] for h in hist], color=C_FT, ls="--", marker="o", ms=3,
+                label="Val")
+        a1.plot(0, base["loss"], "o", ms=4.5, color=C_PRE, label=f"{PRE} (epoch 0)", zorder=5)
+        if "train_loss" in pre:
+            a1.plot(0, pre["train_loss"], "o", ms=4.5, color=C_PRE, zorder=5)
+        a1.axvline(best, color=MUTED, lw=0.8, ls=":")
+        a1.legend(loc="upper right")
+    a1.set_xlabel("Epoch"); a1.set_ylabel("Loss contrastive")
     a1.set_ylim(0, None)
     panel(a1, "a")
     for key, ls, lab in (("t2i_R@1", "-", "Văn bản → ảnh"), ("i2t_R@1", "--", "Ảnh → văn bản")):
         a2.plot(ep, [base[key]] + [h["val"][key] for h in hist], color=C_FT, ls=ls, marker="o", ms=3, label=lab)
     a2.plot([0, 0], [base["t2i_R@1"], base["i2t_R@1"]], "o", ms=4.5, color=C_PRE, label=f"{PRE} (epoch 0)", zorder=5)
     a2.axvline(best, color=MUTED, lw=0.8, ls=":")
-    a2.text(best + 0.15, 42.5, f"epoch được chọn = {best}", fontsize=6.5, color=INK2)
+    r1 = [base[k] for k in ("t2i_R@1", "i2t_R@1")] + [h["val"][k] for h in hist for k in ("t2i_R@1", "i2t_R@1")]
+    lo, hi = 5 * math.floor(min(r1) / 5 - 0.5), 5 * math.ceil(max(r1) / 5 + 0.5)
+    a2.text(best + 0.15, lo + 0.06 * (hi - lo), f"epoch được chọn = {best}", fontsize=6.5, color=INK2)
     a2.set_xlabel("Epoch"); a2.set_ylabel("Recall@1 trên tập val (%)")
-    a2.set_ylim(40, 85)
+    a2.set_ylim(lo, hi)
     a2.legend(loc="center right")
     panel(a2, "b")
     for a in (a1, a2):
@@ -189,7 +204,7 @@ def fig_ranking(r_pre, r_ft, g_pre, g_ft, out):
     a1.set_ylim(0, 100)
     a1.set_xlabel("K"); a1.set_ylabel("Recall@K (%)")
     a1.legend(loc="lower right")
-    panel(a1, "a", "Văn bản → ảnh trên toàn kho (7.756 ảnh)")
+    panel(a1, "a", f"Văn bản → ảnh trên toàn kho ({len(r_ft):,} ảnh)".replace(",", "."))
 
     bins = np.linspace(-0.12, 0.12, 49)
     for g, c, ls, lab in ((g_pre, C_PRE, "--", PRE), (g_ft, C_FT, "-", FT)):
@@ -270,7 +285,7 @@ def write_tables(metrics, n_trainable, split, pre, ft, per_lm, out: Path):
         ["Tối ưu", f"AdamW, lr {a['lr']:g}, weight decay {a['weight_decay']}, warmup {int(a['warmup'] * 100)}% + cosine"],
         ["Batch / số epoch tối đa", f"{a['batch_size']} / {a['epochs']} (dừng sớm, patience {a['patience']})"],
         ["Epoch được chọn (theo rsum trên val)", str(metrics["best_epoch"])],
-        ["Phần cứng", f"CPU, ~{np.mean([h['seconds'] for h in metrics['history']]) / 60:.1f} phút/epoch"],
+        ["Phần cứng", f"{'GPU' if str(a.get('device', 'cpu')).startswith('cuda') else 'CPU'}, ~{np.mean([h['seconds'] for h in metrics['history']]) / 60:.1f} phút/epoch"],
     ], "ll")
 
     def better(k, m):
@@ -287,8 +302,9 @@ def write_tables(metrics, n_trainable, split, pre, ft, per_lm, out: Path):
                   ["Tác vụ", "Chỉ số", "CLIP gốc", "CLIP fine-tuned", "Chênh lệch"],
                   [[tsk, m, f"{pre[k]:.2f}", f"**{ft[k]:.2f}**" if better(k, m) else f"{ft[k]:.2f}", f"{ft[k] - pre[k]:+.2f}"]
                    for tsk, m, k in spec], "llrrr")
+    n_kho = f"{metrics['data']['n_pairs']:,}".replace(",", ".")
     t2 += ("\nR@K, P@10, mAP@10 tính theo %; MedR (hạng trung vị của ảnh đúng) càng nhỏ càng tốt. "
-           "\"Tập test\": tìm trong 776 ảnh test; \"toàn kho\": tìm trong cả 7.756 ảnh. "
+           f"\"Tập test\": tìm trong {len(split['test'])} ảnh test; \"toàn kho\": tìm trong cả {n_kho} ảnh. "
            "Ảnh → ảnh: ảnh liên quan là ảnh có chung category Wikimedia Commons cụ thể (không dùng khi train).\n")
 
     base = metrics["pretrained"]["val"]
@@ -326,7 +342,11 @@ def main():
     ckpt_path = model_dir / CKPT_NAME
     n_trainable = sum(v.numel() for v in torch.load(ckpt_path, map_location="cpu")["state_dict"].values())
 
-    rows, _ = load_pairs(Path(args.captions), Path(args.image_dir))
+    # dùng đúng dữ liệu lúc train: mô hình train sau khi khử trùng thì cũng bỏ ảnh trùng ở đây
+    dedup = None
+    if metrics.get("data", {}).get("dedup"):
+        dedup = load_dedup(Path(metrics["args"]["dedup"]))
+    rows, _, _ = load_pairs(Path(args.captions), Path(args.image_dir), dedup)
     pos = {r["name"]: i for i, r in enumerate(rows)}
     test_idx = [pos[n] for n in split["test"] if n in pos]
     labels = relevance_labels(rows)

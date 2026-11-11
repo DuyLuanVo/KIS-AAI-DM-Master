@@ -233,3 +233,6 @@ scripts/missing_images.txt
 # Cache có thể tạo lại (finetune_clip.py, compare_captions.py)
 models/clip_finetuned/cache/
 scripts/compare_output/embeddings_cache.npz
+
+# kết quả máy 2 (đưa trực tiếp, không commit)
+runs/*/may2/

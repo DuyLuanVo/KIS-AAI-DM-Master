@@ -19,7 +19,7 @@ from typing import List, Sequence
 
 import numpy as np
 from loguru import logger
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.config import PROJECT_ROOT, settings
 
@@ -46,6 +46,18 @@ def tokenize(text: str) -> List[str]:
     return out
 
 
+def to_rgb(img: Image.Image) -> Image.Image:
+    """Chuẩn hóa ảnh giống lúc fine-tune (scripts/image_preprocess.open_rgb): xoay đúng chiều EXIF,
+    ghép nền trắng cho ảnh trong suốt, chuyển RGB."""
+    img = ImageOps.exif_transpose(img)
+    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        img = img.convert("RGBA")
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[-1])
+        return bg
+    return img.convert("RGB")
+
+
 def _l2(v: np.ndarray) -> np.ndarray:
     n = np.linalg.norm(v, axis=-1, keepdims=True)
     return v / np.maximum(n, 1e-12)
@@ -61,7 +73,7 @@ class LiteImageEmbedder:
     def encode(self, images: Sequence[Image.Image]) -> np.ndarray:
         vecs = []
         for img in images:
-            arr = np.asarray(img.convert("RGB").resize((96, 96)), dtype=np.int32) // 32
+            arr = np.asarray(to_rgb(img).resize((96, 96)), dtype=np.int32) // 32
             idx = arr[..., 0] * 64 + arr[..., 1] * 8 + arr[..., 2]
             hist = np.bincount(idx.ravel(), minlength=512).astype(np.float32)
             vecs.append(np.sqrt(hist))
@@ -107,7 +119,7 @@ class ClipImageEmbedder:
 
     def encode(self, images: Sequence[Image.Image]) -> np.ndarray:
         torch = self._torch
-        batch = torch.stack([self.preprocess(im.convert("RGB")) for im in images]).to(self.device)
+        batch = torch.stack([self.preprocess(to_rgb(im)) for im in images]).to(self.device)
         with torch.no_grad():
             feats = self.model.encode_image(batch).float()
         return _l2(feats.cpu().numpy())

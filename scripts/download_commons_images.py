@@ -1,6 +1,7 @@
 """
 Tải ảnh và metadata kiến trúc Việt Nam từ Wikimedia Commons qua PetScan,
-đồng thời lọc và kiểm tra chất lượng ảnh (trùng lặp, kích thước, tỉ lệ).
+đồng thời kiểm tra chất lượng ảnh (kích thước, tỉ lệ cạnh).
+Khử trùng ảnh làm riêng ở scripts/dedup_images.py (CLIP + ORB).
 
 Cách dùng:
     python download_commons_images.py               # Tải theo LIMIT mặc định
@@ -18,9 +19,8 @@ import re
 import sys
 import time
 
-import imagehash
 import requests
-from PIL import Image
+from PIL import Image, ImageOps
 
 # Đảm bảo mã hóa UTF-8 trên Windows console
 if sys.platform == "win32":
@@ -55,7 +55,6 @@ API_DELAY = 1.0         # Giây nghỉ giữa các lượt gọi API metadata
 # Ngưỡng kiểm tra chất lượng ảnh
 MIN_SHORT_SIDE = 224    # Cạnh ngắn tối thiểu
 MAX_ASPECT = 2.5        # Tỉ lệ cạnh tối đa
-DUP_DISTANCE = 4        # Ngưỡng khoảng cách Hamming của pHash để tính trùng lặp
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
@@ -357,6 +356,7 @@ def save_resized_png(content, path):
     try:
         img = Image.open(io.BytesIO(content))
         img.load()
+        img = ImageOps.exif_transpose(img)  # ảnh chụp điện thoại: xoay đúng chiều theo EXIF
     except Exception:
         return False
 
@@ -469,26 +469,21 @@ def load_existing_records():
 # --- Kiểm Tra Chất Lượng ---
 
 def check_quality(records):
-    """Kiểm tra từng ảnh: kích thước, tỉ lệ, trùng lặp và gắn cờ quality_flags."""
+    """Kiểm tra từng ảnh: kích thước, tỉ lệ cạnh và gắn cờ quality_flags (khử trùng làm riêng ở dedup_images.py)."""
     print(f"\nĐang kiểm tra chất lượng {len(records)} ảnh...")
-    hashes = {}
 
     for i, r in enumerate(records, 1):
         r["quality_flags"] = []
-        r["dup_of"] = ""
         path = os.path.join(OUTPUT_DIR, r["image_file"])
         try:
             with Image.open(path) as im:
                 w, h = im.size
-                phash = imagehash.phash(im)
         except Exception as e:
             r["quality_flags"].append(f"loi_doc_file ({e.__class__.__name__})")
             continue
 
         r["width"], r["height"] = w, h
         r["aspect"] = round(max(w, h) / min(w, h), 2)
-        r["phash"] = str(phash)
-        hashes[id(r)] = int(str(phash), 16)
 
         if min(w, h) < MIN_SHORT_SIDE:
             r["quality_flags"].append("qua_nho")
@@ -497,19 +492,6 @@ def check_quality(records):
 
         if i % 500 == 0:
             print(f"   ... {i}/{len(records)}", flush=True)
-
-    # Giữ lại ảnh có độ phân giải cao nhất trong nhóm trùng lặp
-    candidates = [r for r in records if id(r) in hashes]
-    candidates.sort(key=lambda r: r["width"] * r["height"], reverse=True)
-    kept = []
-    for r in candidates:
-        for k in kept:
-            if bin(hashes[id(r)] ^ hashes[id(k)]).count("1") <= DUP_DISTANCE:
-                r["dup_of"] = k["image_file"]
-                r["quality_flags"].append("trung_lap")
-                break
-        else:
-            kept.append(r)
 
     for r in records:
         r["is_clean"] = not r["quality_flags"]
@@ -526,7 +508,7 @@ def write_outputs(records):
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
-    fields = ["image_file", "width", "height", "aspect", "phash", "dup_of", "flags"]
+    fields = ["image_file", "width", "height", "aspect", "flags"]
     with open(report_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
@@ -544,7 +526,6 @@ def write_outputs(records):
 
     print("\n--- Thống kê chất lượng ---")
     print(f"   Tổng số ảnh    : {len(records)}")
-    print(f"   Trùng lặp      : {count('trung_lap')}")
     print(f"   Quá nhỏ        : {count('qua_nho')}")
     print(f"   Tỉ lệ quá dài  : {count('ti_le_dai')}")
     print(f"   Lỗi đọc file   : {count('loi_doc_file')}")

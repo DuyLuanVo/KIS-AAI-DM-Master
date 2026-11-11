@@ -58,24 +58,34 @@ python scripts/index_dataset.py               # toàn bộ 7.756 ảnh, tự b�
 CLIP gốc học từ ảnh đại trà trên internet nên phân biệt kém các kiểu kiến trúc Việt Nam. Script dưới đây fine-tune CLIP bằng chính các cặp (ảnh, caption) trong `captions_final.csv` (loss contrastive như CLIP gốc, caption đóng vai trò nhãn):
 
 ```bash
-python scripts/finetune_clip.py                # ~7.756 cặp, chạy được trên CPU
-python scripts/finetune_clip.py --eval-only    # in lại bảng so sánh CLIP gốc / fine-tuned trên tập test
+python scripts/dedup_images.py                              # khử trùng CLIP + ORB -> data/vietnam_architecture/dedup/
+python scripts/finetune_clip.py --resplit --device cuda --augment --grad-checkpoint --workers 12  # chia lại ngẫu nhiên theo ảnh + train
+python scripts/finetune_clip.py --device cuda --augment --grad-checkpoint --workers 12   # cấu hình chốt, GPU 4GB
+python scripts/kfold_clip.py -- --device cuda --augment --grad-checkpoint --workers 12  # 5-fold (~4 giờ)
+python scripts/finetune_clip.py --aug-preview               # chỉ lưu ảnh minh họa tăng cường (aug_preview.png)
+python scripts/finetune_clip.py --eval-only                 # in lại bảng so sánh CLIP gốc / fine-tuned trên tập test
 ```
 
-* Chỉ mở khóa 4 block Transformer cuối của mỗi nhánh (ảnh, văn bản) cùng lớp chiếu, khoảng 27% tham số. Phần đóng băng được tính một lần rồi cache lại, nên mỗi epoch chỉ mất vài phút trên CPU. Có GPU thì thêm `--device cuda --augment`.
-* Chia train/val/test 80/10/10 theo nhóm ảnh trùng (`split.json`). Checkpoint được chọn theo val, kết quả báo cáo trên test.
+* **Khử trùng** (`scripts/dedup_images.py`): chỉ dùng CLIP và ORB. Một cặp ảnh là trùng nếu cosine CLIP ≥ 0,97 (bản sao: cắt, chỉnh màu, nén lại), hoặc cosine 0,90–0,97 và ORB + RANSAC có ≥ 40 điểm khớp (cùng cảnh, cùng góc chụp). Gom bằng union-find, mỗi cụm giữ 1 ảnh có độ phân giải lớn nhất. `pairs_*.jpg` là ảnh ghép mẫu từng vùng ngưỡng để kiểm tra bằng mắt.
+* **Chia train/val/test** 80/10/10 ngẫu nhiên theo ảnh (`split.json`, hạt giống 42): sau khử trùng mỗi ảnh là một nhóm riêng. Kiểm tra chống rò rỉ vẫn chạy mỗi lần; split cũ không khớp thì dùng `--resplit`. Checkpoint được chọn theo val, kết quả báo cáo trên test.
+* **Chống overfit** (mặc định): `--drop-path 0.1` (stochastic depth cho các block đang train) cùng tăng cường ảnh. `--group-mask` mặc định tắt, chỉ có tác dụng khi dữ liệu còn ảnh cùng cảnh.
+* **Tăng cường ảnh, chỉ trên tập train** (`scripts/image_preprocess.py`): xoay ±8°/phối cảnh nhẹ, cắt ngẫu nhiên (giữ ≥ 50% diện tích), lật ngang, sắc độ (sáng, tương phản, bão hòa, hue), xám hóa, làm mờ/nét, xóa vùng nhỏ. Chính sách *hiểu caption*: caption có trái/phải hoặc chữ/biển hiệu thì không lật; caption nhắc màu thì không đổi hue/không xám hóa; caption nói về ánh sáng thì giảm biên độ độ sáng. `--aug-views V` tạo trước V biến thể cho mỗi ảnh train và cache phần đóng băng (vẫn chạy được trên CPU); `--augment` tăng cường trực tuyến mỗi bước (nên dùng GPU). Val/test chỉ qua preprocess xác định của CLIP, chuẩn hóa bằng mean/std cố định của CLIP, nên không có rò rỉ dữ liệu.
+* Chỉ mở khóa 4 block Transformer cuối của mỗi nhánh (ảnh, văn bản) cùng lớp chiếu, khoảng 27% tham số. Phần đóng băng được tính một lần rồi cache lại, nên mỗi epoch chỉ mất vài phút trên CPU.
 * Đánh giá: Recall@K text→ảnh và ảnh→text; ảnh→ảnh đo bằng P@10/mAP@10, trong đó "liên quan" nghĩa là có chung category Wikimedia Commons cụ thể (category không dùng khi train).
 * Đầu ra nằm ở `models/clip_finetuned/`: `clip_vitb32_kis.pt` (chỉ phần trọng số đã train, nạp chồng lên CLIP gốc) và `metrics.json`.
 * Hình và bảng cho báo cáo: `python scripts/make_finetune_report.py` → `reports/clip_finetune/` (4 hình PNG 300 dpi + `bang_ket_qua.md`).
 
-Kết quả trên tập test (776 ảnh; checkpoint epoch 6/10, train trên CPU khoảng 6,5 phút/epoch):
+Kết quả trên tập test (759 ảnh, sau khử trùng và chia theo nhóm; checkpoint epoch 20/20, GPU khoảng 3 phút/epoch):
 
 | Chỉ số | CLIP gốc | Fine-tuned |
 |---|---:|---:|
-| Text→ảnh R@1 / R@5 / R@10 (gallery 776 ảnh test) | 47.2 / 76.9 / 83.5 | **76.8 / 96.5 / 98.8** |
-| Ảnh→text R@1 / R@5 / R@10 | 51.4 / 77.7 / 85.8 | **79.6 / 97.3 / 98.6** |
-| Text→ảnh trên toàn kho 7.756 ảnh, R@1 / R@10 / R@50 | 19.6 / 51.9 / 77.2 | **40.2 / 85.7 / 96.7** |
-| Ảnh→ảnh P@10 / mAP@10 (chung category Commons) | 53.5 / 49.1 | **57.5 / 53.5** |
+| Text→ảnh R@1 / R@5 / R@10 (gallery 759 ảnh test) | 43.5 / 74.6 / 82.7 | **70.2 / 94.9 / 98.9** |
+| Ảnh→text R@1 / R@5 / R@10 | 46.1 / 74.2 / 82.7 | **68.5 / 95.1 / 98.3** |
+| Text→ảnh trên toàn kho 7.583 ảnh, R@1 / R@10 / R@50 | 19.6 / 56.9 / 79.1 | **45.7 / 88.5 / 98.8** |
+| Text→ảnh / ảnh→text R@1 theo nhóm (ảnh cùng nhóm không tính là sai) | 54.5 / 55.1 | **84.5 / 82.9** |
+| Ảnh→ảnh P@10 / mAP@10 (chung category Commons) | 51.4 / 47.0 | **57.2 / 52.9** |
+
+Đánh giá chéo 5-fold theo nhóm (`models/clip_finetuned/kfold_summary.json`; mỗi fold 80/10/10, test các fold không chồng nhau): text→ảnh R@1 **70.8 ± 1.4** (CLIP gốc 44.5 ± 1.3), toàn kho R@1 **46.5 ± 1.4** (22.0 ± 2.1), R@1 theo nhóm **84.4 ± 2.5**, ảnh→ảnh mAP@10 **51.4 ± 1.9** (45.7 ± 1.6); khoảng cách train/val (R@1 theo nhóm) 9.8 ± 1.2 điểm, val loss đi ngang không tăng lại. Bản trước khi khử trùng/chia theo nhóm đạt R@1 76.8 trên một tập test khác; con số đó cao hơn một phần vì ảnh trùng/cùng cảnh lẫn giữa train và test.
 
 Dùng mô hình fine-tune trong backend:
 
