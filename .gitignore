@@ -234,5 +234,3 @@ scripts/missing_images.txt
 models/clip_finetuned/cache/
 scripts/compare_output/embeddings_cache.npz
 
-# kết quả máy 2 (đưa trực tiếp, không commit)
-runs/*/may2/

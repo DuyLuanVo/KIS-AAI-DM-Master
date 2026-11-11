@@ -99,7 +99,6 @@ def main():
                     help="Cache phần đóng băng dùng lại cho mọi fold (không phụ thuộc cách chia)")
     ap.add_argument("--keep-cache", action="store_true", help="Giữ cache trong từng fold sau khi chạy xong")
     ap.add_argument("--summary-only", action="store_true")
-    ap.add_argument("--folds", default="", help="Chỉ chạy các fold này, vd. 0,1,2 (để chia fold cho nhiều máy)")
     args = ap.parse_args(argv)
     out_dir = Path(args.out_dir)
 
@@ -111,11 +110,8 @@ def main():
     parts = make_parts(rows, 2 * args.k, args.seed)
     print(f"{len(rows)} ảnh -> {2 * args.k} phần: {[len(p) for p in parts]}")
     tests = set()
-    run_folds = [int(x) for x in args.folds.split(",")] if args.folds else list(range(args.k))
     for i in range(args.k):
         fold_dir = out_dir / f"fold{i}"
-        if i not in run_folds:
-            continue
         if (fold_dir / "metrics.json").exists():
             print(f"fold {i}: đã xong, bỏ qua")
             continue

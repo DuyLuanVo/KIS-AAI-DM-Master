@@ -59,17 +59,18 @@ CLIP gốc học từ ảnh đại trà trên internet nên phân biệt kém c�
 
 ```bash
 python scripts/dedup_images.py                              # khử trùng CLIP + ORB -> data/vietnam_architecture/dedup/
-python scripts/finetune_clip.py --resplit --device cuda --augment --grad-checkpoint --workers 12  # chia lại ngẫu nhiên theo ảnh + train
-python scripts/finetune_clip.py --device cuda --augment --grad-checkpoint --workers 12   # cấu hình chốt, GPU 4GB
-python scripts/kfold_clip.py -- --device cuda --augment --grad-checkpoint --workers 12  # 5-fold (~4 giờ)
+python scripts/finetune_clip.py --resplit --aug-policy blip_geo --device cuda --augment --grad-checkpoint --workers 12  # cấu hình chốt, GPU 4GB
+python scripts/finetune_clip.py --aug-policy default --device cuda --augment --grad-checkpoint --out-dir models/ablation/aug_default  # đối chứng: tăng cường không có RandAugment hình học
+python scripts/compare_runs.py models/ablation/aug_default models/clip_finetuned   # chọn cấu hình theo val
+python scripts/kfold_clip.py --out-dir models/clip_finetuned/kfold -- --device cuda --augment --grad-checkpoint --workers 12 --aug-policy blip_geo  # 5-fold (~4,5 giờ)
 python scripts/finetune_clip.py --aug-preview               # chỉ lưu ảnh minh họa tăng cường (aug_preview.png)
 python scripts/finetune_clip.py --eval-only                 # in lại bảng so sánh CLIP gốc / fine-tuned trên tập test
 ```
 
 * **Khử trùng** (`scripts/dedup_images.py`): chỉ dùng CLIP và ORB. Một cặp ảnh là trùng nếu cosine CLIP ≥ 0,97 (bản sao: cắt, chỉnh màu, nén lại), hoặc cosine 0,90–0,97 và ORB + RANSAC có ≥ 40 điểm khớp (cùng cảnh, cùng góc chụp). Gom bằng union-find, mỗi cụm giữ 1 ảnh có độ phân giải lớn nhất. `pairs_*.jpg` là ảnh ghép mẫu từng vùng ngưỡng để kiểm tra bằng mắt.
 * **Chia train/val/test** 80/10/10 ngẫu nhiên theo ảnh (`split.json`, hạt giống 42): sau khử trùng mỗi ảnh là một nhóm riêng. Kiểm tra chống rò rỉ vẫn chạy mỗi lần; split cũ không khớp thì dùng `--resplit`. Checkpoint được chọn theo val, kết quả báo cáo trên test.
-* **Chống overfit** (mặc định): `--drop-path 0.1` (stochastic depth cho các block đang train) cùng tăng cường ảnh. `--group-mask` mặc định tắt, chỉ có tác dụng khi dữ liệu còn ảnh cùng cảnh.
-* **Tăng cường ảnh, chỉ trên tập train** (`scripts/image_preprocess.py`): xoay ±8°/phối cảnh nhẹ, cắt ngẫu nhiên (giữ ≥ 50% diện tích), lật ngang, sắc độ (sáng, tương phản, bão hòa, hue), xám hóa, làm mờ/nét, xóa vùng nhỏ. Chính sách *hiểu caption*: caption có trái/phải hoặc chữ/biển hiệu thì không lật; caption nhắc màu thì không đổi hue/không xám hóa; caption nói về ánh sáng thì giảm biên độ độ sáng. `--aug-views V` tạo trước V biến thể cho mỗi ảnh train và cache phần đóng băng (vẫn chạy được trên CPU); `--augment` tăng cường trực tuyến mỗi bước (nên dùng GPU). Val/test chỉ qua preprocess xác định của CLIP, chuẩn hóa bằng mean/std cố định của CLIP, nên không có rò rỉ dữ liệu.
+* **Chống overfit**: `--drop-path 0.1` (stochastic depth cho các block đang train, mặc định) cùng tăng cường ảnh.
+* **Tăng cường ảnh, chỉ trên tập train** (`scripts/image_preprocess.py`): xoay ±8°/phối cảnh nhẹ, cắt ngẫu nhiên (giữ ≥ 50% diện tích), lật ngang, sắc độ (sáng, tương phản, bão hòa, hue), xám hóa, làm mờ/nét, xóa vùng nhỏ. Chính sách *hiểu caption*: caption có trái/phải hoặc chữ/biển hiệu thì không lật; caption nhắc màu thì không đổi hue/không xám hóa; caption nói về ánh sáng thì giảm biên độ độ sáng. `--aug-policy blip_geo` (cấu hình chốt) thêm RandAugment(2, 5) kiểu BLIP chỉ gồm phép hình học (shear, dịch, xoay). `--aug-views V` tạo trước V biến thể cho mỗi ảnh train và cache phần đóng băng (vẫn chạy được trên CPU); `--augment` tăng cường trực tuyến mỗi bước (nên dùng GPU). Val/test chỉ qua preprocess xác định của CLIP, chuẩn hóa bằng mean/std cố định của CLIP, nên không có rò rỉ dữ liệu.
 * Chỉ mở khóa 4 block Transformer cuối của mỗi nhánh (ảnh, văn bản) cùng lớp chiếu, khoảng 27% tham số. Phần đóng băng được tính một lần rồi cache lại, nên mỗi epoch chỉ mất vài phút trên CPU.
 * Đánh giá: Recall@K text→ảnh và ảnh→text; ảnh→ảnh đo bằng P@10/mAP@10, trong đó "liên quan" nghĩa là có chung category Wikimedia Commons cụ thể (category không dùng khi train).
 * Đầu ra nằm ở `models/clip_finetuned/`: `clip_vitb32_kis.pt` (chỉ phần trọng số đã train, nạp chồng lên CLIP gốc) và `metrics.json`.

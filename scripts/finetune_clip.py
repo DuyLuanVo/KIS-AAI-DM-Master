@@ -534,8 +534,6 @@ def main():
     ap.add_argument("--aug-preview", action="store_true", help="Chỉ lưu ảnh minh họa tăng cường rồi thoát")
     ap.add_argument("--aug-policy", choices=POLICIES, default="default",
                     help="default: cấu hình chính; blip_geo: thêm RandAugment(2,5) hình học kiểu BLIP (thí nghiệm B)")
-    ap.add_argument("--split-file", default="", help="Dùng split.json có sẵn (chép vào --out-dir) thay vì chia mới")
-    ap.add_argument("--split-only", action="store_true", help="Chỉ chia train/val/test, ghi split.json rồi thoát")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--grad-checkpoint", action="store_true",
                     help="Gradient checkpointing cho các block train (GPU ít VRAM, vd. 4 GB)")
@@ -570,9 +568,6 @@ def main():
     print(f"Cặp ảnh-caption: {len(rows)} (thiếu ảnh: {missing}, bỏ vì trùng: {dropped}) | thiết bị: {device}")
 
     split_path = out_dir / ("split.json" if not args.limit else f"split_limit{args.limit}.json")
-    if args.split_file:  # dùng chung một cách chia giữa các máy / các lần thí nghiệm
-        split_path.write_text(Path(args.split_file).read_text(encoding="utf-8"), encoding="utf-8")
-        print(f"Chép split từ {args.split_file}")
     if split_path.exists() and not args.resplit:
         split = json.loads(split_path.read_text(encoding="utf-8"))
         known = set(split["train"]) | set(split["val"]) | set(split["test"])
@@ -594,9 +589,6 @@ def main():
     assert not split_leaks(rows, split), "Có nhóm ảnh trùng nằm ở nhiều tập"
     print(f"train {len(idx['train'])} | val {len(idx['val'])} | test {len(idx['test'])} | "
           f"{len({rows[i]['group'] for i in idx['train']})} nhóm train, không nhóm nào lẫn sang val/test")
-    if args.split_only:
-        print(f"Đã ghi {split_path}")
-        return
     labels = relevance_labels(rows)
     # tập con train cố định, cùng cỡ với val, để so train/val công bằng
     sub_train = sorted(random.Random(args.seed).sample(idx["train"], min(len(idx["val"]), len(idx["train"]))))

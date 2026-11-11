@@ -2,7 +2,7 @@
 So sánh nhiều lần fine-tune (vd. cấu hình chính và thí nghiệm B) từ metrics.json.
 Chọn cấu hình theo VAL (rsum tại epoch được chọn); số liệu TEST chỉ để báo cáo, không dùng để chọn.
 
-    python scripts/compare_runs.py models/clip_finetuned_v2 models/clip_finetuned_v2_B
+    python scripts/compare_runs.py models/ablation/aug_default models/clip_finetuned
 """
 import json
 import sys
