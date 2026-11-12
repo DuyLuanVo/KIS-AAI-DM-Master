@@ -6,7 +6,7 @@
 |---|---|
 | Mô hình nền | CLIP ViT-B/32 (OpenAI) |
 | Dữ liệu | 6.285 cặp ảnh–caption |
-| Chia train / val / test | 5027 / 629 / 629 (theo nhóm ảnh trùng) |
+| Chia train / val / test | 5027 / 629 / 629 (chia ngẫu nhiên theo ảnh) |
 | Block được train (mỗi nhánh) | 4 / 12 |
 | Tham số được train | 41.6M / 151.3M (27.5%) |
 | Hàm mất mát | InfoNCE đối xứng |

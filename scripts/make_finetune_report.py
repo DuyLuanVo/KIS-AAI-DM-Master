@@ -292,7 +292,7 @@ def write_tables(metrics, n_trainable, split, pre, ft, per_lm, out: Path):
     t1 = md_table("Bảng 1. Dữ liệu và cấu hình fine-tune CLIP", ["Hạng mục", "Giá trị"], [
         ["Mô hình nền", f"CLIP {metrics['base_model']} (OpenAI)"],
         ["Dữ liệu", f"{sum(len(v) for v in split.values()):,} cặp ảnh–caption".replace(",", ".")],
-        ["Chia train / val / test", f"{len(split['train'])} / {len(split['val'])} / {len(split['test'])} (theo nhóm ảnh trùng)"],
+        ["Chia train / val / test", f"{len(split['train'])} / {len(split['val'])} / {len(split['test'])} (chia ngẫu nhiên theo ảnh)"],
         ["Block được train (mỗi nhánh)", f"{metrics['unfreeze_blocks']} / 12"],
         ["Tham số được train", f"{n_trainable / 1e6:.1f}M / {n_all / 1e6:.1f}M ({n_trainable / n_all * 100:.1f}%)"],
         ["Hàm mất mát", "InfoNCE đối xứng"],
