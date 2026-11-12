@@ -45,6 +45,11 @@ INK, INK2, MUTED, GRID = "#1a1a1a", "#4d4d4d", "#8c8c8c", "#e6e6e6"
 CM = 1 / 2.54
 W1, W2 = 8.8 * CM, 18 * CM  # khổ 1 cột / 2 cột
 PRE, FT = "CLIP gốc", "CLIP fine-tuned"
+# Ví dụ truy vấn cho hinh4: chọn tay trong các ca fine-tuned hạng 1 / CLIP gốc ngoài top-5, ưu tiên ảnh kiến trúc
+# tiêu biểu (Khuê Văn Các, tháp Chăm, nhà rông) thay vì ảnh biển chữ hay hiện vật bảo tàng
+EXAMPLES = ["Văn_Miếu_-_Quốc_Tử_Giám_-_Khuê_Văn_Các_53109488.png",
+            "0040323_Thap_Banh_It_complex,_Nhon_Hoa,_Binh_Dinh_Vietnam_153_132478869.png",
+            "Bahnar_Communal_House_at_the_Vietnam_Museum_of_Ethnology_88424481.png"]
 
 
 def style():
@@ -228,10 +233,18 @@ def _square(path, size=300):
         return im.crop(((w - m) // 2, (h - m) // 2, (w + m) // 2, (h + m) // 2)).resize((size, size))
 
 
-def fig_qualitative(rows, emb, test_idx, r_pre, r_ft, out, n_queries=3, topk=5, seed=7):
-    # Truy vấn được chọn ngẫu nhiên trong các trường hợp fine-tuned xếp ảnh đúng hạng 1 còn CLIP gốc ngoài top-5
+def fig_qualitative(rows, emb, test_idx, r_pre, r_ft, out, n_queries=3, topk=5, seed=7, names=None):
+    # Truy vấn lấy trong các trường hợp fine-tuned xếp ảnh đúng hạng 1 còn CLIP gốc ngoài top-5:
+    # chỉ định theo tên ảnh (--examples) hoặc chọn ngẫu nhiên
     cand = [i for i, (a, b) in enumerate(zip(r_pre, r_ft)) if b == 1 and a > topk]
-    pick = np.random.default_rng(seed).choice(cand, size=min(n_queries, len(cand)), replace=False)
+    if names:
+        where = {rows[gi]["name"]: p for p, gi in enumerate(test_idx)}
+        missing = [n for n in names if n not in where]
+        assert not missing, f"Ảnh không có trong tập test: {missing}"
+        pick = [where[n] for n in names]
+    else:
+        pick = np.random.default_rng(seed).choice(cand, size=min(n_queries, len(cand)), replace=False)
+    print("  ví dụ truy vấn: " + "; ".join(f"{rows[test_idx[p]]['name']} (CLIP gốc hạng {r_pre[p]})" for p in pick))
     fig = plt.figure(figsize=(W2, 7.2 * CM * len(pick)))
     gs = GridSpec(3 * len(pick), topk + 1, figure=fig, height_ratios=[0.38, 1, 1] * len(pick),
                   width_ratios=[1.0] + [1] * topk, hspace=0.1, wspace=0.05)
@@ -331,6 +344,8 @@ def main():
     ap.add_argument("--out-dir", default=str(ROOT / "reports" / "clip_finetune"))
     ap.add_argument("--captions", default=str(ROOT / "scripts" / "compare_output" / "captions_final.csv"))
     ap.add_argument("--image-dir", default=str(ROOT / "data" / "vietnam_architecture"))
+    ap.add_argument("--examples", nargs="+", default=EXAMPLES,
+                    help="tên ảnh test dùng làm ví dụ truy vấn ở hinh4 (mặc định: các ví dụ kiến trúc đã chọn)")
     args = ap.parse_args()
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8")
@@ -362,7 +377,7 @@ def main():
     fig_training(metrics, out)
     fig_metrics(pre, ft, out)
     fig_ranking(r_pre, r_ft, g_pre, g_ft, out)
-    fig_qualitative(rows, emb, test_idx, r_pre, r_ft, out)
+    fig_qualitative(rows, emb, test_idx, r_pre, r_ft, out, names=args.examples)
     write_tables(metrics, n_trainable, split, pre, ft, per_landmark(labels, emb, test_idx), out)
 
 
