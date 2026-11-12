@@ -82,22 +82,21 @@ python scripts/finetune_clip.py --eval-only                 # in lại bảng so
 * **Chia train/val/test** 80/10/10 ngẫu nhiên theo ảnh (`split.json`, hạt giống 42): sau khử trùng mỗi ảnh là một nhóm riêng. Kiểm tra chống rò rỉ vẫn chạy mỗi lần; split cũ không khớp thì dùng `--resplit`. Checkpoint được chọn theo val, kết quả báo cáo trên test.
 * **Chống overfit**: `--drop-path 0.1` (stochastic depth cho các block đang train, mặc định) cùng tăng cường ảnh.
 * **Tăng cường ảnh, chỉ trên tập train** (`scripts/image_preprocess.py`): xoay ±8°/phối cảnh nhẹ, cắt ngẫu nhiên (giữ ≥ 50% diện tích), lật ngang, sắc độ (sáng, tương phản, bão hòa, hue), xám hóa, làm mờ/nét, xóa vùng nhỏ. Chính sách *hiểu caption*: caption có trái/phải hoặc chữ/biển hiệu thì không lật; caption nhắc màu thì không đổi hue/không xám hóa; caption nói về ánh sáng thì giảm biên độ độ sáng. `--aug-policy blip_geo` (cấu hình chốt) thêm RandAugment(2, 5) kiểu BLIP chỉ gồm phép hình học (shear, dịch, xoay). `--aug-views V` tạo trước V biến thể cho mỗi ảnh train và cache phần đóng băng (vẫn chạy được trên CPU); `--augment` tăng cường trực tuyến mỗi bước (nên dùng GPU). Val/test chỉ qua preprocess xác định của CLIP, chuẩn hóa bằng mean/std cố định của CLIP, nên không có rò rỉ dữ liệu.
-* Chỉ mở khóa 4 block Transformer cuối của mỗi nhánh (ảnh, văn bản) cùng lớp chiếu, khoảng 27% tham số. Phần đóng băng được tính một lần rồi cache lại, nên mỗi epoch chỉ mất vài phút trên CPU.
+* Chỉ mở khóa 4 block Transformer cuối của mỗi nhánh (ảnh, văn bản) cùng lớp chiếu, khoảng 27% tham số. Phần đóng băng của nhánh văn bản được cache một lần; với `--augment --grad-checkpoint`, mỗi epoch mất khoảng 2,7 phút trên GPU 4 GB (T1200).
 * Đánh giá: Recall@K text→ảnh và ảnh→text; ảnh→ảnh đo bằng P@10/mAP@10, trong đó "liên quan" nghĩa là có chung category Wikimedia Commons cụ thể (category không dùng khi train).
 * Đầu ra nằm ở `models/clip_finetuned/`: `clip_vitb32_kis.pt` (chỉ phần trọng số đã train, nạp chồng lên CLIP gốc) và `metrics.json`.
 * Hình và bảng cho báo cáo: `python scripts/make_finetune_report.py` → `reports/clip_finetune/` (4 hình PNG 300 dpi + `bang_ket_qua.md`).
 
-Kết quả trên tập test (759 ảnh, sau khử trùng và chia theo nhóm; checkpoint epoch 20/20, GPU khoảng 3 phút/epoch):
+Kết quả trên tập test (629 ảnh, dữ liệu đã khử trùng, chia ngẫu nhiên theo ảnh; cấu hình `blip_geo`, checkpoint epoch 19, GPU T1200 khoảng 2,7 phút/epoch):
 
 | Chỉ số | CLIP gốc | Fine-tuned |
 |---|---:|---:|
-| Text→ảnh R@1 / R@5 / R@10 (gallery 759 ảnh test) | 43.5 / 74.6 / 82.7 | **70.2 / 94.9 / 98.9** |
-| Ảnh→text R@1 / R@5 / R@10 | 46.1 / 74.2 / 82.7 | **68.5 / 95.1 / 98.3** |
-| Text→ảnh trên toàn kho 7.583 ảnh, R@1 / R@10 / R@50 | 19.6 / 56.9 / 79.1 | **45.7 / 88.5 / 98.8** |
-| Text→ảnh / ảnh→text R@1 theo nhóm (ảnh cùng nhóm không tính là sai) | 54.5 / 55.1 | **84.5 / 82.9** |
-| Ảnh→ảnh P@10 / mAP@10 (chung category Commons) | 51.4 / 47.0 | **57.2 / 52.9** |
+| Text→ảnh R@1 / R@5 / R@10 (trong 629 ảnh test) | 51.7 / 80.8 / 88.2 | **82.8 / 97.5 / 99.4** |
+| Ảnh→text R@1 / R@5 / R@10 | 59.9 / 81.9 / 89.7 | **82.7 / 97.8 / 99.4** |
+| Text→ảnh trên toàn kho 6.285 ảnh, R@1 / R@10 / R@50 | 26.2 / 59.9 / 81.6 | **52.3 / 91.4 / 98.3** |
+| Ảnh→ảnh P@10 / mAP@10 (chung category Commons) | 45.7 / 40.5 | **50.9 / 46.2** |
 
-Đánh giá chéo 5-fold theo nhóm (`models/clip_finetuned/kfold_summary.json`; mỗi fold 80/10/10, test các fold không chồng nhau): text→ảnh R@1 **70.8 ± 1.4** (CLIP gốc 44.5 ± 1.3), toàn kho R@1 **46.5 ± 1.4** (22.0 ± 2.1), R@1 theo nhóm **84.4 ± 2.5**, ảnh→ảnh mAP@10 **51.4 ± 1.9** (45.7 ± 1.6); khoảng cách train/val (R@1 theo nhóm) 9.8 ± 1.2 điểm, val loss đi ngang không tăng lại. Bản trước khi khử trùng/chia theo nhóm đạt R@1 76.8 trên một tập test khác; con số đó cao hơn một phần vì ảnh trùng/cùng cảnh lẫn giữa train và test.
+Đánh giá chéo 5-fold (`models/clip_finetuned/kfold/kfold_summary.json`; mỗi fold 80/10/10, test các fold không chồng nhau): text→ảnh R@1 **83.7 ± 1.5** (CLIP gốc 52.9 ± 1.3), toàn kho R@1 **51.8 ± 2.8** (25.9 ± 1.6), ảnh→ảnh mAP@10 **45.2 ± 1.5** (40.7 ± 1.7); khoảng cách train/val R@1 10.2 ± 1.4 điểm, val loss đi ngang không tăng lại. Đối chứng không có RandAugment hình học (`models/ablation/aug_default`): rsum val 566.6 so với 568.4 của cấu hình chốt.
 
 Dùng mô hình fine-tune trong backend:
 

@@ -234,3 +234,6 @@ scripts/missing_images.txt
 models/clip_finetuned/cache/
 scripts/compare_output/embeddings_cache.npz
 
+
+# báo cáo: chỉ giữ docx
+reports/*.pdf

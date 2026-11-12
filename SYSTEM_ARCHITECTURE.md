@@ -7,10 +7,12 @@ Hệ thống tìm kiếm kho ảnh công trình kiến trúc Việt Nam bằng *
 ```mermaid
 flowchart TD
     subgraph OFF["Ngoại tuyến: chuẩn bị dữ liệu và mô hình"]
-        WIKI["Wikimedia Commons"] -->|download_commons_images.py| DATA["data/vietnam_architecture/<br>ảnh + metadata .json"]
-        DATA -->|caption_images_Qwen3.6.py<br>+ Gemma 4| CAP["Caption từ 2 VLM"]
+        WIKI["Wikimedia Commons"] -->|download_commons_images.py| DATA["data/vietnam_architecture/<br>7.846 ảnh + metadata .json"]
+        DATA -->|preprocess_images.py<br>chuẩn hóa, kích thước, pHash| QF["7.762 ảnh đạt chất lượng"]
+        QF -->|dedup_images.py<br>CLIP + ORB| DD["6.291 ảnh sau khử trùng"]
+        DD -->|caption_images_Qwen3.6.py<br>+ Gemma 4| CAP["Caption từ 2 VLM"]
         CAP -->|compare_captions.py| FINAL["captions_final.csv<br>(1 caption / ảnh)"]
-        FINAL -->|finetune_clip.py| FT["CLIP ViT-B/32 fine-tune<br>models/clip_finetuned/"]
+        FINAL -->|finetune_clip.py<br>6.285 cặp| FT["CLIP ViT-B/32 fine-tune<br>models/clip_finetuned/"]
     end
 
     subgraph IDX["Nạp ảnh vào kho"]
@@ -38,9 +40,11 @@ Script và trang "Thêm ảnh vào kho" là hai cách nạp vào **cùng một k
 
 | Bước | Script | Đầu ra |
 |---|---|---|
-| Thu thập ảnh và metadata (tên công trình, category, tác giả, giấy phép, tọa độ) | `download_commons_images.py` | `data/vietnam_architecture/*.png` + `*.json` |
+| Thu thập ảnh và metadata (tên công trình, category, tác giả, giấy phép, tọa độ) | `download_commons_images.py` | `data/vietnam_architecture/*.png` + `*.json` (7.846 ảnh) |
+| Chuẩn hóa (EXIF, nền trắng, RGB, cạnh dài 640), lọc cạnh ngắn ≥ 224, tỉ lệ ≤ 2,5, bản sao y hệt (pHash ≤ 4 bit) | `preprocess_images.py` | `quality/quality_report.csv` (7.762 ảnh) |
+| Khử trùng: cosine CLIP ≥ 0,97, hoặc 0,90–0,97 và ORB + RANSAC ≥ 40 điểm khớp; mỗi cụm giữ ảnh phân giải lớn nhất | `dedup_images.py` | `dedup/dedup_groups.csv`, `keep_list.txt` (6.291 ảnh) |
 | Sinh caption tiếng Anh bằng 2 VLM (Qwen 3.6, Gemma 4) theo `scripts/prompt.md` | `caption_images_Qwen3.6.py` | `caption_project_*/captions_clip.csv` |
-| So sánh 2 bộ caption bằng cosine sentence-embedding, hiệu chỉnh ngưỡng, rà soát thủ công, chọn caption cuối | `compare_captions.py` (+ `embed_images_xlsx.py` để xem ảnh trong Excel) | `compare_output/captions_final.csv` (7.756 ảnh) |
+| So sánh 2 bộ caption bằng cosine sentence-embedding, hiệu chỉnh ngưỡng, rà soát thủ công, chọn caption cuối | `compare_captions.py` (+ `embed_images_xlsx.py` để xem ảnh trong Excel) | `compare_output/captions_final.csv` (6.285 ảnh; 6 ảnh không có caption hợp lệ) |
 
 ## 3. Lưu trữ
 
@@ -61,10 +65,11 @@ CLIP gồm image encoder và text encoder chiếu về cùng không gian 512 chi
 
 * loss contrastive đối xứng (InfoNCE) như CLIP gốc, caption đóng vai trò nhãn;
 * chỉ mở khóa 4 block Transformer cuối của mỗi nhánh cùng lớp chiếu (27,5% tham số) để không làm mất kiến thức gốc;
-* phần bị đóng băng được tính một lần rồi cache lại, nên train được trên CPU;
-* chia train/val/test 80/10/10 theo nhóm ảnh trùng, chọn checkpoint theo val, báo cáo trên test.
+* phần bị đóng băng của nhánh văn bản được tính một lần rồi cache lại; cùng gradient checkpointing, train được trên GPU 4 GB;
+* tăng cường ảnh chỉ cho tập train, điều chỉnh theo caption, thêm RandAugment hình học kiểu BLIP (cấu hình chốt `blip_geo`);
+* chia train/val/test 80/10/10 ngẫu nhiên theo ảnh (đã khử trùng), chọn checkpoint theo val, báo cáo trên test; kiểm chứng bằng 5-fold.
 
-Trên tập test, Recall@1 văn bản → ảnh tăng từ 47,2% lên 76,8%; ảnh → ảnh (P@10, chung công trình) tăng từ 53,5% lên 57,5%. Hình và bảng đầy đủ ở `reports/clip_finetune/`.
+Trên tập test, Recall@1 văn bản → ảnh tăng từ 51,7% lên 82,8% (toàn kho 6.285 ảnh: 26,2% lên 52,3%); ảnh → ảnh (P@10, chung danh mục Commons) tăng từ 45,7% lên 50,9%. 5-fold: Recall@1 83,7 ± 1,5%. Hình và bảng đầy đủ ở `reports/clip_finetune/`.
 
 Checkpoint chỉ chứa phần trọng số đã train và được nạp chồng lên CLIP gốc khi đặt `CLIP_FINETUNED_PATH`. Đổi mô hình thì phải tính lại vector ảnh bằng `reembed_images.py`, vì vector của hai mô hình không so được với nhau.
 
