@@ -45,13 +45,12 @@ INK, INK2, MUTED, GRID = "#1a1a1a", "#4d4d4d", "#8c8c8c", "#e6e6e6"
 CM = 1 / 2.54
 W1, W2 = 8.8 * CM, 18 * CM  # khổ 1 cột / 2 cột
 PRE, FT = "CLIP gốc", "CLIP fine-tuned"
-# Ví dụ truy vấn cho hinh4: chọn tay trong các ca fine-tuned hạng 1 / CLIP gốc ngoài top-5, gồm ba phong cách kiến trúc
-# (truyền thống, Chăm, thuộc địa Pháp). Điều kiện thêm: (1) top-5 của CLIP gốc không có ảnh nào cùng công trình với ảnh
-# đúng (nếu có thì CLIP gốc thực ra đã tìm đúng công trình, chỉ khác góc chụp); (2) caption truy vấn đúng với ảnh (không
-# nằm trong các caption bị chấm sai, vd. caption gọi tháp Chăm Po Nagar là "pagodas")
+# Ví dụ truy vấn cho hinh4: chọn tay trong các ca fine-tuned hạng 1 / CLIP gốc ngoài top-5, gồm kiến trúc truyền thống
+# và tháp Chăm; top-5 của CLIP gốc không có ảnh nào cùng công trình với ảnh đúng (nếu có thì CLIP gốc thực ra đã tìm
+# đúng công trình, chỉ khác góc chụp). Lưu ý: caption Po Nagar gọi tháp Chăm là "brick pagodas" (có trong mẫu chấm tay)
 EXAMPLES = ["Văn_Miếu_-_Quốc_Tử_Giám_-_Khuê_Văn_Các_53109488.png",
             "0040323_Thap_Banh_It_complex,_Nhon_Hoa,_Binh_Dinh_Vietnam_153_132478869.png",
-            "Phía_trước_Bạch_Dinh_24868420.png"]
+            "Nha_Trang_Tours_Cham_1780835.png"]
 
 
 def style():
