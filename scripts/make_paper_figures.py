@@ -1,8 +1,8 @@
 """
 Sinh hình phần dữ liệu cho bài báo (bổ sung cho make_finetune_report.py).
 
-  reports/clip_finetune/hinh5_du_lieu.png      (a) độ tương đồng caption Qwen/Gemma, (b) độ dài caption,
-                                               (c) loại ảnh
+  reports/clip_finetune/hinh5_du_lieu.png      (a) độ tương đồng caption Qwen/Gemma (toàn bộ ảnh),
+                                               (b) độ dài caption, (c) loại ảnh (ảnh còn lại sau khử trùng)
 
     python scripts/make_paper_figures.py
 """
@@ -24,6 +24,7 @@ from make_finetune_report import CM, C_FT, C_PRE, INK, INK2, MUTED, panel, save,
 
 OUT = ROOT / "reports" / "clip_finetune"
 CMP = ROOT / "scripts" / "compare_output"
+DEDUP = ROOT / "data" / "vietnam_architecture" / "dedup" / "dedup_groups.csv"
 W = 16.5 * CM  # vùng chữ của mẫu bài báo (A4, lề trái 2,5 cm, phải 2 cm)
 
 
@@ -31,11 +32,11 @@ def data_stats():
     sims, final, types = [], [], Counter()
     with open(CMP / "similarity_all.csv", encoding="utf-8-sig", newline="") as f:
         sims = [float(r["similarity"]) for r in csv.DictReader(f)]
+    # (b), (c) tính trên bộ dữ liệu cuối: chỉ các ảnh còn lại sau khử trùng
+    with open(DEDUP, encoding="utf-8-sig", newline="") as f:
+        keep = {r["image_file"] for r in csv.DictReader(f) if r["keep"] == "1"}
     with open(CMP / "captions_final.csv", encoding="utf-8-sig", newline="") as f:
-        final = [len(r["caption"].split()) for r in csv.DictReader(f)]
-    keep = set()
-    with open(CMP / "captions_final.csv", encoding="utf-8-sig", newline="") as f:
-        keep = {ntpath.basename(r["filepath"]) for r in csv.DictReader(f)}
+        final = [len(r["caption"].split()) for r in csv.DictReader(f) if ntpath.basename(r["filepath"]) in keep]
     with open(ROOT / "scripts" / "caption_project_Qwen3.6" / "captions_full.csv", encoding="utf-8-sig") as f:
         for r in csv.DictReader(f):
             if r["file"] in keep:
@@ -81,6 +82,7 @@ def data_stats():
     fig.tight_layout(w_pad=1.2)
     save(fig, OUT, "hinh5_du_lieu")
     print(f"  tương đồng: n={len(sims)} trung vị={np.median(sims):.3f} <0.60: {(sims < 0.60).sum()}")
+    print(f"  caption: n={len(final)} TB={np.mean(final):.2f} từ")
     print(f"  loại ảnh: {dict(types)}")
 
 
