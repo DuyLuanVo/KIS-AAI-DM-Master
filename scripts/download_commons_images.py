@@ -1,17 +1,15 @@
 """
-Tải ảnh và metadata kiến trúc Việt Nam từ Wikimedia Commons qua PetScan,
-đồng thời kiểm tra chất lượng ảnh (kích thước, tỉ lệ cạnh).
-Khử trùng ảnh làm riêng ở scripts/dedup_images.py (CLIP + ORB).
+Bước 1 của pipeline - thu thập: tải ảnh (thumbnail rộng 960 px) và metadata kiến trúc Việt Nam
+từ Wikimedia Commons qua PetScan + MediaWiki API. Ảnh được lưu nguyên dạng (PNG, giữ EXIF);
+mọi xử lý ảnh nằm ở bước 2: scripts/preprocess_images.py (chuẩn hóa, lọc chất lượng) và scripts/dedup_images.py.
 
 Cách dùng:
     python download_commons_images.py               # Tải theo LIMIT mặc định
     python download_commons_images.py --limit 200   # Tải số lượng ảnh chỉ định
     python download_commons_images.py --full        # Tải toàn bộ danh sách
-    python download_commons_images.py --check-only  # Chỉ kiểm tra chất lượng ảnh hiện có
 """
 
 import argparse
-import csv
 import io
 import json
 import os
@@ -20,7 +18,7 @@ import sys
 import time
 
 import requests
-from PIL import Image, ImageOps
+from PIL import Image
 
 # Đảm bảo mã hóa UTF-8 trên Windows console
 if sys.platform == "win32":
@@ -46,15 +44,11 @@ USER_AGENT = "KIS-Architect/1.0 (student research project)"
 
 LIMIT = None              # Số lượng ảnh tải mặc định (None: tải toàn bộ)
 BATCH_SIZE = 50         # Tối đa số tiêu đề trong mỗi request API
-TARGET_SIZE = 640       # Cạnh dài nhất sau khi resize
 THUMB_WIDTH = 960       # Chiều rộng thumbnail lấy từ Wikimedia
 DOWNLOAD_DELAY = 3      # Giây nghỉ giữa các lần tải ảnh
 MAX_RETRIES = 5
 API_DELAY = 1.0         # Giây nghỉ giữa các lượt gọi API metadata
 
-# Ngưỡng kiểm tra chất lượng ảnh
-MIN_SHORT_SIDE = 224    # Cạnh ngắn tối thiểu
-MAX_ASPECT = 2.5        # Tỉ lệ cạnh tối đa
 
 COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
@@ -70,7 +64,6 @@ NOISE_CATEGORY = re.compile(
     re.IGNORECASE,
 )
 
-RESAMPLE = getattr(Image, "Resampling", Image).BICUBIC
 
 session = requests.Session()
 session.headers["User-Agent"] = USER_AGENT
@@ -351,25 +344,17 @@ def is_valid_image(path):
         return False
 
 
-def save_resized_png(content, path):
-    """Mở ảnh, chuyển RGB (xử lý nền trong suốt nếu có), resize và lưu PNG."""
+def save_png(content, path):
+    """Lưu ảnh tải về thành PNG, không xử lý gì thêm (giữ EXIF để bước tiền xử lý xoay đúng chiều)."""
     try:
         img = Image.open(io.BytesIO(content))
         img.load()
-        img = ImageOps.exif_transpose(img)  # ảnh chụp điện thoại: xoay đúng chiều theo EXIF
     except Exception:
         return False
-
-    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
-        img = img.convert("RGBA")
-        background = Image.new("RGB", img.size, (255, 255, 255))
-        background.paste(img, mask=img.split()[-1])
-        img = background
-    else:
+    if img.mode not in ("1", "L", "LA", "P", "RGB", "RGBA", "I", "I;16"):  # vd. CMYK: PNG không hỗ trợ
         img = img.convert("RGB")
-
-    img.thumbnail((TARGET_SIZE, TARGET_SIZE), RESAMPLE)
-    img.save(path, "PNG", optimize=True)
+    exif = img.info.get("exif")
+    img.save(path, "PNG", **({"exif": exif} if exif else {}))
     return True
 
 
@@ -421,7 +406,7 @@ def download_all(titles, limit=LIMIT):
                     print(f"[Lỗi] Không tải được {title} ({code})")
                     failed += 1
                     continue
-                if not save_resized_png(resp.content, img_path):
+                if not save_png(resp.content, img_path):
                     print(f"[Lỗi] {title} không phải ảnh hợp lệ")
                     failed += 1
                     continue
@@ -448,91 +433,14 @@ def download_all(titles, limit=LIMIT):
     return records
 
 
-def load_existing_records():
-    """Đọc metadata của các ảnh đã tải (dùng cho --check-only)."""
-    records = []
-    if not os.path.isdir(OUTPUT_DIR):
-        return records
-    for name in sorted(os.listdir(OUTPUT_DIR)):
-        if not name.endswith(".json"):
-            continue
-        try:
-            with open(os.path.join(OUTPUT_DIR, name), encoding="utf-8") as f:
-                record = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if "image_file" in record and os.path.exists(os.path.join(OUTPUT_DIR, record["image_file"])):
-            records.append(record)
-    return records
-
-
-# --- Kiểm Tra Chất Lượng ---
-
-def check_quality(records):
-    """Kiểm tra từng ảnh: kích thước, tỉ lệ cạnh và gắn cờ quality_flags (khử trùng làm riêng ở dedup_images.py)."""
-    print(f"\nĐang kiểm tra chất lượng {len(records)} ảnh...")
-
-    for i, r in enumerate(records, 1):
-        r["quality_flags"] = []
-        path = os.path.join(OUTPUT_DIR, r["image_file"])
-        try:
-            with Image.open(path) as im:
-                w, h = im.size
-        except Exception as e:
-            r["quality_flags"].append(f"loi_doc_file ({e.__class__.__name__})")
-            continue
-
-        r["width"], r["height"] = w, h
-        r["aspect"] = round(max(w, h) / min(w, h), 2)
-
-        if min(w, h) < MIN_SHORT_SIDE:
-            r["quality_flags"].append("qua_nho")
-        if r["aspect"] > MAX_ASPECT:
-            r["quality_flags"].append("ti_le_dai")
-
-        if i % 500 == 0:
-            print(f"   ... {i}/{len(records)}", flush=True)
-
-    for r in records:
-        r["is_clean"] = not r["quality_flags"]
-        save_metadata(r)
-
-
 def write_outputs(records):
-    """Ghi metadata_all.jsonl, quality_report.csv, clean_list.txt và in thống kê."""
+    """Ghi metadata_all.jsonl (metadata của mọi ảnh đã tải)."""
     all_path = os.path.join(OUTPUT_DIR, "metadata_all.jsonl")
-    report_path = os.path.join(OUTPUT_DIR, "quality_report.csv")
-    clean_path = os.path.join(OUTPUT_DIR, "clean_list.txt")
-
     with open(all_path, "w", encoding="utf-8") as f:
         for r in records:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
-
-    fields = ["image_file", "width", "height", "aspect", "flags"]
-    with open(report_path, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        for r in sorted(records, key=lambda r: r["image_file"]):
-            row = {k: r.get(k, "") for k in fields}
-            row["flags"] = ";".join(r.get("quality_flags", []))
-            writer.writerow(row)
-
-    clean = sorted(r["image_file"] for r in records if r.get("is_clean"))
-    with open(clean_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(clean))
-
-    def count(flag):
-        return sum(1 for r in records if any(x.startswith(flag) for x in r.get("quality_flags", [])))
-
-    print("\n--- Thống kê chất lượng ---")
-    print(f"   Tổng số ảnh    : {len(records)}")
-    print(f"   Quá nhỏ        : {count('qua_nho')}")
-    print(f"   Tỉ lệ quá dài  : {count('ti_le_dai')}")
-    print(f"   Lỗi đọc file   : {count('loi_doc_file')}")
-    print(f"   Đạt yêu cầu    : {len(clean)}")
     print(f"\n   Metadata tổng hợp : {all_path}")
-    print(f"   Báo cáo chất lượng: {report_path}")
-    print(f"   Danh sách sạch    : {clean_path}")
+    print("   Bước tiếp theo    : python scripts/preprocess_images.py")
 
 
 # --- Chương trình chính ---
@@ -542,8 +450,6 @@ def parse_args():
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--full", action="store_true", help="Tải toàn bộ danh sách PetScan")
     group.add_argument("--limit", type=int, help="Số lượng ảnh muốn tải")
-    group.add_argument("--check-only", action="store_true",
-                       help="Không tải, chỉ kiểm tra chất lượng ảnh hiện có")
     args = parser.parse_args()
 
     if args.limit is not None and args.limit <= 0:
@@ -554,19 +460,12 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    if args.check_only:
-        records = load_existing_records()
-        if not records:
-            print(f"[Lỗi] Không tìm thấy ảnh nào trong {OUTPUT_DIR}")
-            sys.exit(1)
-    else:
-        limit = None if args.full else (args.limit if args.limit is not None else LIMIT)
-        titles = get_petscan_results()
-        if not titles:
-            sys.exit(1)
-        records = download_all(titles, limit=limit)
+    limit = None if args.full else (args.limit if args.limit is not None else LIMIT)
+    titles = get_petscan_results()
+    if not titles:
+        sys.exit(1)
+    records = download_all(titles, limit=limit)
 
     if records:
-        check_quality(records)
         write_outputs(records)
         print(f"\nHoàn tất! Dữ liệu được lưu tại: {OUTPUT_DIR}")

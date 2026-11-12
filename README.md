@@ -39,11 +39,23 @@ docker-compose up -d
 
 Không dùng Docker? Tạo `backend/.env` với `QDRANT_MODE=local` và `STORAGE_BACKEND=local` (xem `backend/env.example`). Khi đó Qdrant lưu vào thư mục `qdrant_local/`, ảnh dataset đọc trực tiếp từ `data/vietnam_architecture/`.
 
-### 3. Lập chỉ mục ảnh + caption (chạy một lần)
+### 3. Pipeline dữ liệu (đã chạy, kết quả có sẵn trong `data/` và `scripts/compare_output/`)
+
+```bash
+python scripts/download_commons_images.py --full   # 1. thu thập: 7.846 ảnh + metadata (lưu nguyên dạng)
+python scripts/preprocess_images.py                # 2a. chuẩn hóa, lọc kích thước/tỉ lệ, bản sao pHash -> còn 7.762
+python scripts/dedup_images.py --device cuda       # 2b. khử trùng CLIP + ORB -> còn 6.291 (dedup/keep_list.txt)
+# 3. sinh caption cho keep_list.txt bằng caption_images_Qwen3.6.py / caption_images_Gemma4.py (clean_list.txt),
+#    rồi compare_captions.py: đối chiếu chéo + kiểm tra tay -> captions_final.csv (6.285 cặp ảnh-caption)
+```
+
+Tập 6.285 ảnh đã dùng để huấn luyện được tái lập đúng bằng `python scripts/dedup_images.py --tiebreak-captions scripts/compare_output/captions_final.csv` (khi nhiều ảnh trong một cụm cùng độ phân giải, lần chạy đó ưu tiên ảnh có caption dài hơn).
+
+### 4. Lập chỉ mục ảnh + caption (chạy một lần)
 
 ```bash
 python scripts/index_dataset.py --limit 200   # thử nhanh 200 ảnh
-python scripts/index_dataset.py               # toàn bộ 7.756 ảnh, tự bỏ qua ảnh đã có
+python scripts/index_dataset.py               # 6.285 ảnh sau khử trùng, tự bỏ qua ảnh đã có, xóa ảnh trùng còn sót
 ```
 
 * Script và trang "Thêm ảnh vào kho" là hai cách nạp vào **cùng một kho**: ảnh nạp theo cách nào cũng được lưu, mã hóa và tìm kiếm như nhau. Script chỉ tiện hơn khi nạp hàng loạt từ CSV.
@@ -53,12 +65,11 @@ python scripts/index_dataset.py               # toàn bộ 7.756 ảnh, tự b�
 * `--yolo`: nhận diện thêm cấu kiện kiến trúc bằng YOLO-World để lọc theo cấu kiện (chậm).
 * Lần đầu chạy sẽ tải CLIP (~340 MB).
 
-### 4. Fine-tune CLIP và dùng trong hệ thống
+### 5. Fine-tune CLIP và dùng trong hệ thống
 
 CLIP gốc học từ ảnh đại trà trên internet nên phân biệt kém các kiểu kiến trúc Việt Nam. Script dưới đây fine-tune CLIP bằng chính các cặp (ảnh, caption) trong `captions_final.csv` (loss contrastive như CLIP gốc, caption đóng vai trò nhãn):
 
 ```bash
-python scripts/dedup_images.py                              # khử trùng CLIP + ORB -> data/vietnam_architecture/dedup/
 python scripts/finetune_clip.py --resplit --aug-policy blip_geo --device cuda --augment --grad-checkpoint --workers 12  # cấu hình chốt, GPU 4GB
 python scripts/finetune_clip.py --aug-policy default --device cuda --augment --grad-checkpoint --out-dir models/ablation/aug_default  # đối chứng: tăng cường không có RandAugment hình học
 python scripts/compare_runs.py models/ablation/aug_default models/clip_finetuned   # chọn cấu hình theo val
@@ -67,7 +78,7 @@ python scripts/finetune_clip.py --aug-preview               # chỉ lưu ảnh m
 python scripts/finetune_clip.py --eval-only                 # in lại bảng so sánh CLIP gốc / fine-tuned trên tập test
 ```
 
-* **Khử trùng** (`scripts/dedup_images.py`): chỉ dùng CLIP và ORB. Một cặp ảnh là trùng nếu cosine CLIP ≥ 0,97 (bản sao: cắt, chỉnh màu, nén lại), hoặc cosine 0,90–0,97 và ORB + RANSAC có ≥ 40 điểm khớp (cùng cảnh, cùng góc chụp). Gom bằng union-find, mỗi cụm giữ 1 ảnh có độ phân giải lớn nhất. `pairs_*.jpg` là ảnh ghép mẫu từng vùng ngưỡng để kiểm tra bằng mắt.
+* **Khử trùng** (`scripts/dedup_images.py`): chỉ dùng CLIP và ORB. Một cặp ảnh là trùng nếu cosine CLIP ≥ 0,97 (bản sao: cắt, chỉnh màu, nén lại), hoặc cosine 0,90–0,97 và ORB + RANSAC có ≥ 40 điểm khớp (cùng một cảnh: cùng mặt công trình, góc chụp giống hoặc lệch vừa phải). Gom bằng union-find, mỗi cụm giữ 1 ảnh có độ phân giải lớn nhất. `pairs_*.jpg` là ảnh ghép mẫu từng vùng ngưỡng để kiểm tra bằng mắt.
 * **Chia train/val/test** 80/10/10 ngẫu nhiên theo ảnh (`split.json`, hạt giống 42): sau khử trùng mỗi ảnh là một nhóm riêng. Kiểm tra chống rò rỉ vẫn chạy mỗi lần; split cũ không khớp thì dùng `--resplit`. Checkpoint được chọn theo val, kết quả báo cáo trên test.
 * **Chống overfit**: `--drop-path 0.1` (stochastic depth cho các block đang train, mặc định) cùng tăng cường ảnh.
 * **Tăng cường ảnh, chỉ trên tập train** (`scripts/image_preprocess.py`): xoay ±8°/phối cảnh nhẹ, cắt ngẫu nhiên (giữ ≥ 50% diện tích), lật ngang, sắc độ (sáng, tương phản, bão hòa, hue), xám hóa, làm mờ/nét, xóa vùng nhỏ. Chính sách *hiểu caption*: caption có trái/phải hoặc chữ/biển hiệu thì không lật; caption nhắc màu thì không đổi hue/không xám hóa; caption nói về ánh sáng thì giảm biên độ độ sáng. `--aug-policy blip_geo` (cấu hình chốt) thêm RandAugment(2, 5) kiểu BLIP chỉ gồm phép hình học (shear, dịch, xoay). `--aug-views V` tạo trước V biến thể cho mỗi ảnh train và cache phần đóng băng (vẫn chạy được trên CPU); `--augment` tăng cường trực tuyến mỗi bước (nên dùng GPU). Val/test chỉ qua preprocess xác định của CLIP, chuẩn hóa bằng mean/std cố định của CLIP, nên không có rò rỉ dữ liệu.
@@ -101,7 +112,7 @@ python scripts/reembed_images.py   # tính lại vector ảnh trong Qdrant, gi�
 
 Phải chạy lại `reembed_images.py` mỗi khi đổi `CLIP_FINETUNED_PATH`, vì vector của CLIP gốc và CLIP fine-tune không so được với nhau. `GET /api/v1/stats` cho biết mô hình đang dùng (`clip-ViT-B/32-ft`).
 
-### 5. Chạy backend (đồng thời phục vụ giao diện)
+### 6. Chạy backend (đồng thời phục vụ giao diện)
 
 ```bash
 cd backend
@@ -175,7 +186,10 @@ backend/app/
   services/storage.py        MinIO hoặc thư mục local
   services/yolo_service.py   YOLO-World (tùy chọn)
 frontend/                    index.html, styles.css, script.js
-scripts/index_dataset.py     nạp captions_final.csv vào Qdrant
+scripts/download_commons_images.py  thu thập ảnh + metadata từ Wikimedia Commons
+scripts/preprocess_images.py chuẩn hóa ảnh, lọc kích thước/tỉ lệ, lọc bản sao pHash
+scripts/dedup_images.py      khử trùng CLIP + ORB
+scripts/index_dataset.py     nạp captions_final.csv (ảnh sau khử trùng) vào Qdrant
 scripts/finetune_clip.py     fine-tune CLIP trên cặp ảnh-caption, đánh giá trước/sau
 scripts/reembed_images.py    tính lại vector ảnh khi đổi mô hình CLIP
 scripts/make_finetune_report.py  sinh hình + bảng kết quả fine-tune vào reports/clip_finetune/

@@ -1,8 +1,8 @@
 """
 Sinh hình phần dữ liệu cho bài báo (bổ sung cho make_finetune_report.py).
 
-  reports/clip_finetune/hinh5_du_lieu.png      (a) độ tương đồng caption Qwen/Gemma (toàn bộ ảnh),
-                                               (b) độ dài caption, (c) loại ảnh (ảnh còn lại sau khử trùng)
+  reports/clip_finetune/hinh5_du_lieu.png      (a) độ tương đồng caption Qwen/Gemma, (b) độ dài caption, (c) loại ảnh;
+                                               cả ba tính trên ảnh còn lại sau khử trùng (đúng thứ tự pipeline)
 
     python scripts/make_paper_figures.py
 """
@@ -30,13 +30,15 @@ W = 16.5 * CM  # vùng chữ của mẫu bài báo (A4, lề trái 2,5 cm, phả
 
 def data_stats():
     sims, final, types = [], [], Counter()
-    with open(CMP / "similarity_all.csv", encoding="utf-8-sig", newline="") as f:
-        sims = [float(r["similarity"]) for r in csv.DictReader(f)]
-    # (b), (c) tính trên bộ dữ liệu cuối: chỉ các ảnh còn lại sau khử trùng
+    # tính trên ảnh còn lại sau khử trùng (caption chỉ được sinh cho các ảnh này)
     with open(DEDUP, encoding="utf-8-sig", newline="") as f:
         keep = {r["image_file"] for r in csv.DictReader(f) if r["keep"] == "1"}
+    with open(CMP / "similarity_all.csv", encoding="utf-8-sig", newline="") as f:
+        sims = [float(r["similarity"]) for r in csv.DictReader(f) if r["file"] in keep]
     with open(CMP / "captions_final.csv", encoding="utf-8-sig", newline="") as f:
-        final = [len(r["caption"].split()) for r in csv.DictReader(f) if ntpath.basename(r["filepath"]) in keep]
+        rows = [r for r in csv.DictReader(f) if ntpath.basename(r["filepath"]) in keep]
+    final = [len(r["caption"].split()) for r in rows]
+    keep = {ntpath.basename(r["filepath"]) for r in rows}  # bộ dữ liệu cuối: ảnh sau khử trùng có caption hợp lệ
     with open(ROOT / "scripts" / "caption_project_Qwen3.6" / "captions_full.csv", encoding="utf-8-sig") as f:
         for r in csv.DictReader(f):
             if r["file"] in keep:
@@ -52,8 +54,8 @@ def data_stats():
     a.set_ylim(0, 1000)
     a.axvline(0.60, color=INK, lw=0.8, ls="--")
     a.text(0.585, 990, "ngưỡng\n0.60", ha="right", va="top", fontsize=6.5, color=INK)
-    a.axvline(0.37, color=MUTED, lw=0.8, ls=":")
-    a.text(0.355, 990, "trung vị\n2 ảnh\nngẫu\nnhiên", ha="right", va="top", fontsize=6, color=MUTED)
+    a.axvline(0.36, color=MUTED, lw=0.8, ls=":")
+    a.text(0.345, 990, "trung vị\n2 ảnh\nngẫu\nnhiên", ha="right", va="top", fontsize=6, color=MUTED)
     a.set_xlabel("Cosine giữa caption Qwen và Gemma")
     a.set_ylabel("Số ảnh")
     a.legend(loc="center left", bbox_to_anchor=(0.0, 0.42), fontsize=6, handlelength=1.4, handletextpad=0.4,

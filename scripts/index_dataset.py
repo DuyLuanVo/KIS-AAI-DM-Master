@@ -6,7 +6,7 @@ Lập chỉ mục bộ dữ liệu ảnh + caption vào Qdrant (và MinIO nếu 
 metadata đi kèm đọc từ file .json cùng tên (do download_commons_images.py tạo).
 
 Ví dụ:
-    python scripts/index_dataset.py                 # nạp toàn bộ, bỏ qua ảnh đã có
+    python scripts/index_dataset.py                 # nạp toàn bộ ảnh còn lại sau khử trùng, bỏ qua ảnh đã có
     python scripts/index_dataset.py --limit 200     # thử nhanh 200 ảnh
     python scripts/index_dataset.py --recreate      # xóa collection cũ, nạp lại từ đầu
     python scripts/index_dataset.py --yolo          # kèm nhận diện cấu kiện YOLO-World (chậm)
@@ -64,10 +64,20 @@ def main():
     ap.add_argument("--recreate", action="store_true", help="Xóa và tạo lại collection")
     ap.add_argument("--no-skip", action="store_true", help="Nạp lại cả ảnh đã có trong collection")
     ap.add_argument("--yolo", action="store_true", help="Nhận diện cấu kiện bằng YOLO-World")
+    ap.add_argument("--dedup", default=str(ROOT / "data" / "vietnam_architecture" / "dedup" / "dedup_groups.csv"),
+                    help="Kết quả khử trùng: chỉ nạp ảnh keep=1, ảnh dataset bị loại sẽ bị xóa khỏi collection")
+    ap.add_argument("--no-dedup", action="store_true", help="Nạp mọi ảnh có caption, kể cả ảnh trùng")
     args = ap.parse_args()
 
     image_dir = Path(args.image_dir)
     rows = list(read_captions(Path(args.captions)))
+    dropped = []
+    if not args.no_dedup:
+        with open(args.dedup, encoding="utf-8-sig", newline="") as f:
+            keep = {r["image_file"]: r["keep"] == "1" for r in csv.DictReader(f)}
+        dropped = [name for name, _, _ in rows if not keep.get(name, True)]
+        rows = [r for r in rows if keep.get(r[0], True)]
+        print(f"Khử trùng: bỏ {len(dropped)} ảnh trùng theo {args.dedup}")
     if args.limit:
         rows = rows[: args.limit]
     print(f"Caption: {len(rows)} dòng từ {args.captions}")
@@ -76,6 +86,12 @@ def main():
 
     ensure_collection(recreate=args.recreate)
     store, storage = get_store(), get_storage()
+    if dropped:  # ảnh trùng có thể còn trong collection từ lần nạp trước (không dùng --dedup)
+        old = store.existing_keys([f"dataset/{n}" for n in dropped])
+        store.delete_keys(old)
+        for k in old:
+            storage.delete(k)
+        print(f"Đã xóa {len(old)} ảnh trùng còn trong collection")
 
     yolo = None
     if args.yolo:

@@ -19,6 +19,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     FilterSelector,
+    PointIdsList,
     MatchAny,
     MatchText,
     MatchValue,
@@ -125,6 +126,14 @@ class VectorStore:
         self.client.delete(self.collection, points_selector=FilterSelector(filter=flt), wait=True)
         self._stats_cache = None
         return keys
+
+    def delete_keys(self, keys: Iterable[str]) -> int:
+        """Xóa các điểm theo khóa ảnh (vd. ảnh dataset bị loại ở bước khử trùng)."""
+        ids = [point_id_for(k) for k in keys]
+        if ids:
+            self.client.delete(self.collection, points_selector=PointIdsList(points=ids), wait=True)
+            self._stats_cache = None
+        return len(ids)
 
     def existing_keys(self, keys: Iterable[str]) -> set:
         ids = [point_id_for(k) for k in keys]

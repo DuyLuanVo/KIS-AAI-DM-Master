@@ -1,15 +1,17 @@
 """
-Khử trùng ảnh bằng CLIP + ORB: mỗi bức ảnh / mỗi góc chụp của một cảnh chỉ giữ lại 1 ảnh.
+Bước 2 của pipeline (sau preprocess_images.py) - khử trùng ảnh bằng CLIP + ORB: mỗi bức ảnh / mỗi cảnh chụp
+của một công trình chỉ giữ lại 1 ảnh. Đầu vào: các ảnh keep=1 trong quality/quality_report.csv.
 
 Quy tắc cho mỗi cặp ảnh (i, j), chỉ cần thỏa một dòng:
   1. cosine embedding CLIP gốc >= --dup-thr (0,97)                 -> bản sao (cắt, chỉnh màu, nén lại)
   2. cosine trong [--verify-lo, --dup-thr) = [0,90; 0,97) và
-     ORB + RANSAC homography có >= --min-inliers (40) điểm khớp      -> cùng cảnh, cùng góc chụp
+     ORB + RANSAC homography có >= --min-inliers (40) điểm khớp      -> cùng một cảnh (cùng mặt công trình)
 CLIP ở dòng 2 chỉ dùng để chọn cặp ứng viên; quyết định nằm ở kiểm chứng hình học, nên ngưỡng 0,90 không làm tăng
 gom nhầm (tỉ lệ cặp được ORB xác nhận giảm từ ~69% ở cosine 0,95-0,97 xuống ~4% ở 0,90-0,91).
 
 Các cặp trùng được gom thành cụm bằng union-find (A trùng B, B trùng C -> cả ba chung cụm); mỗi cụm giữ ảnh có độ
-phân giải lớn nhất (caption dài hơn làm tiêu chí phụ), bỏ phần còn lại. Sau bước này không còn ảnh trùng nên
+phân giải lớn nhất (hòa thì theo tên tệp; --tiebreak-captions: ưu tiên caption dài hơn trước tên tệp), bỏ phần
+còn lại. Sau bước này không còn ảnh trùng nên
 finetune_clip.py chia train/val/test ngẫu nhiên theo từng ảnh (mỗi ảnh giữ lại là một nhóm riêng).
 
 Chỉ dùng nội dung ảnh (không dùng caption hay nhãn) nên chạy trên toàn bộ dữ liệu trước khi chia không gây rò rỉ.
@@ -17,6 +19,7 @@ Chỉ dùng nội dung ảnh (không dùng caption hay nhãn) nên chạy trên 
 Đầu ra (mặc định data/vietnam_architecture/dedup/)
   * dedup_groups.csv   : mỗi ảnh một dòng: keep, dup_cluster, dup_of, reason, split_group, group_size
   * dedup_pairs.csv    : các cặp ứng viên kèm cosine, số điểm khớp ORB, kết luận
+  * keep_list.txt      : tên các ảnh giữ lại, đầu vào của bước sinh caption
   * summary.json       : thống kê
   * pairs_<band>.jpg   : ảnh ghép mẫu theo từng vùng để kiểm tra / chỉnh ngưỡng bằng mắt
   * features.npz       : cache embedding CLIP + kích thước ảnh (chạy lại để chỉnh ngưỡng thì không phải tính lại)
@@ -24,6 +27,8 @@ Chỉ dùng nội dung ảnh (không dùng caption hay nhãn) nên chạy trên 
 Ví dụ:
     python scripts/dedup_images.py
     python scripts/dedup_images.py --dup-thr 0.96 --min-inliers 50   # chỉnh ngưỡng, dùng lại cache
+    # tái lập đúng tập đã dùng huấn luyện (lần chạy đó có sẵn caption nên dùng độ dài caption làm tiêu chí phụ):
+    python scripts/dedup_images.py --tiebreak-captions scripts/compare_output/captions_final.csv
 """
 import argparse
 import csv
@@ -56,11 +61,11 @@ from image_preprocess import open_rgb  # noqa: E402
 def list_images(args):
     image_dir = Path(args.image_dir)
     names = []
-    if args.captions and Path(args.captions).exists():
-        with open(args.captions, encoding="utf-8-sig", newline="") as f:
+    if args.images and Path(args.images).exists():
+        with open(args.images, encoding="utf-8-sig", newline="") as f:
             for r in csv.DictReader(f):
-                fp = (r.get("filepath") or r.get("file") or "").strip()
-                if fp:
+                fp = (r.get("image_file") or r.get("filepath") or r.get("file") or "").strip()
+                if fp and r.get("keep", "1") == "1":
                     names.append(ntpath.basename(fp))
     else:
         names = sorted(p.name for p in image_dir.iterdir() if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"))
@@ -271,8 +276,10 @@ def contact_sheet(pairs, names, image_dir, path, title, max_pairs=12, size=220):
 
 def main():
     ap = argparse.ArgumentParser(description="Khử trùng ảnh bằng CLIP + ORB, mỗi cụm giữ 1 ảnh")
-    ap.add_argument("--captions", default=str(ROOT / "scripts" / "compare_output" / "captions_final.csv"),
-                    help="Chỉ xét ảnh có trong file caption (để trống -> mọi ảnh trong --image-dir)")
+    ap.add_argument("--images", default=str(ROOT / "data" / "vietnam_architecture" / "quality" / "quality_report.csv"),
+                    help="Danh sách ảnh đầu vào (CSV có image_file, keep); mặc định: ảnh đạt lọc chất lượng")
+    ap.add_argument("--tiebreak-captions", default="",
+                    help="CSV caption: khi hòa độ phân giải, ưu tiên ảnh có caption dài hơn (chỉ để tái lập lần chạy cũ)")
     ap.add_argument("--image-dir", default=str(ROOT / "data" / "vietnam_architecture"))
     ap.add_argument("--out-dir", default=str(ROOT / "data" / "vietnam_architecture" / "dedup"))
     ap.add_argument("--device", default="cpu")
@@ -280,7 +287,7 @@ def main():
     ap.add_argument("--dup-thr", type=float, default=0.97, help="cosine CLIP >= ngưỡng -> bản sao")
     ap.add_argument("--verify-lo", type=float, default=0.90,
                     help="cosine trong [verify-lo, dup-thr) -> kiểm chứng ORB+RANSAC")
-    ap.add_argument("--min-inliers", type=int, default=40, help="số điểm khớp ORB tối thiểu để coi là cùng góc chụp")
+    ap.add_argument("--min-inliers", type=int, default=40, help="số điểm khớp ORB tối thiểu để coi là cùng một cảnh")
     args = ap.parse_args()
 
     out = Path(args.out_dir)
@@ -289,7 +296,7 @@ def main():
     print(f"Số ảnh: {len(names)}")
     f = load_or_compute(args, image_dir, names)
     pairs = find_pairs(f, args, image_dir)
-    keep, dup_of, reason, root, size = build_clusters(f, pairs, caption_lengths(args.captions))
+    keep, dup_of, reason, root, size = build_clusters(f, pairs, caption_lengths(args.tiebreak_captions))
 
     # split_group = cụm trùng; sau khi bỏ ảnh trùng, mỗi ảnh giữ lại là một nhóm riêng -> chia ngẫu nhiên theo ảnh
     with open(out / "dedup_groups.csv", "w", encoding="utf-8-sig", newline="") as fh:
@@ -297,6 +304,8 @@ def main():
         w.writerow(["image_file", "keep", "dup_cluster", "dup_of", "reason", "split_group", "group_size"])
         for i, nm in enumerate(names):
             w.writerow([nm, int(keep[i]), names[root[i]], dup_of[i], reason[i], names[root[i]], size[root[i]]])
+    # danh sách ảnh giữ lại -> đầu vào bước sinh caption (clean_list.txt của caption_images_*.py)
+    (out / "keep_list.txt").write_text("\n".join(nm for i, nm in enumerate(names) if keep[i]) + "\n", encoding="utf-8")
     with open(out / "dedup_pairs.csv", "w", encoding="utf-8-sig", newline="") as fh:
         w = csv.writer(fh)
         w.writerow(["a", "b", "cos", "inliers", "dup", "reason"])
